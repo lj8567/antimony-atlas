@@ -1,0 +1,185 @@
+/**
+ * Test fixtures shaped like the live schema, modelled on the seeded Stibnite
+ * record. Used only by the automated tests — never by application pages.
+ */
+
+import type { AssetListItem, EventDetail, ObservationDetail, TradeFlowDetail } from '@/lib/supabase/types';
+
+export const stibniteObservation: ObservationDetail = {
+  observation_id: 'obs-1',
+  node_id: '11111111-1111-4111-8111-111111111111',
+  edge_id: null,
+  country_code: null,
+  metric_id: 'metric-1',
+  value_numeric: 12300,
+  value_text: null,
+  unit: 't Sb',
+  product_form_id: 'form-1',
+  period_start: '2028-01-01',
+  period_end: '2028-12-31',
+  estimate_type: 'modelled',
+  assertion_id: 'assert-1',
+  metric: {
+    metric_id: 'metric-1',
+    name: 'Projected recovered antimony (annualised)',
+    definition: 'Average annual recovered antimony over the payback period',
+    canonical_unit: 't Sb',
+  },
+  product_form: { product_form_id: 'form-1', name: 'Antimony ores and concentrates', hs_code: '261710' },
+  assertion: {
+    assertion_id: 'assert-1',
+    claim_text: 'Approximately 12,300 tonnes of antimony recovered annually.',
+    page_reference: 'p. 22',
+    table_reference: null,
+    provenance: 'modelled',
+    confidence_score: 78,
+    reviewed_at: '2026-05-01T00:00:00Z',
+    source: {
+      source_id: 'source-1',
+      title: 'Stibnite Gold Project Feasibility Study',
+      publisher: 'Perpetua Resources Corp.',
+      source_type: 'company_report',
+      publication_date: '2025-01-15',
+      url: 'https://example.com/stibnite-feasibility',
+      licence: null,
+    },
+  },
+};
+
+export function makeAsset(overrides: Partial<AssetListItem['node']> = {}, rest: Partial<AssetListItem> = {}): AssetListItem {
+  return {
+    node: {
+      node_id: '11111111-1111-4111-8111-111111111111',
+      metal_id: 'metal-1',
+      canonical_name: 'Stibnite Gold Project',
+      node_type: 'development_project',
+      status: 'construction',
+      status_effective_date: '2025-06-01',
+      country_code: 'USA',
+      region: 'Valley County, Idaho',
+      latitude: 44.91,
+      longitude: -115.34,
+      location_precision: 'approximate',
+      operator_entity_id: 'entity-1',
+      description: 'Gold-antimony project in central Idaho.',
+      first_seen_at: '2025-01-01T00:00:00Z',
+      last_reviewed_at: '2026-06-15T00:00:00Z',
+      ...overrides,
+    },
+    operator_name: 'Perpetua Resources Corp.',
+    owner_names: ['Perpetua Resources Corp.'],
+    identity_provenance: 'reported',
+    identity_confidence: 82,
+    latest_observation: stibniteObservation,
+    observation_count: 3,
+    metric_kinds: ['production', 'capacity'],
+    latest_event: {
+      event_id: 'event-1',
+      headline: 'Construction start announced',
+      event_type: 'construction_start',
+      severity: 2,
+      announced_at: '2025-06-10T00:00:00Z',
+    },
+    source_count: 4,
+    ...rest,
+  };
+}
+
+export const costerfield: AssetListItem = makeAsset(
+  {
+    node_id: '22222222-2222-4222-8222-222222222222',
+    canonical_name: 'Costerfield Operation',
+    node_type: 'mine',
+    status: 'operating',
+    country_code: 'AUS',
+    region: 'Victoria',
+    latitude: -36.88,
+    longitude: 144.79,
+    location_precision: 'exact',
+  },
+  {
+    operator_name: 'Mandalay Resources',
+    owner_names: ['Mandalay Resources'],
+    identity_provenance: 'reported',
+    identity_confidence: 90,
+    latest_observation: null,
+    observation_count: 0,
+    metric_kinds: [],
+    latest_event: null,
+    source_count: 1,
+  },
+);
+
+export const sampleEvent: EventDetail = {
+  event_id: 'event-1',
+  event_type: 'permit_decision',
+  headline: 'Final federal permit issued',
+  description: 'Record of decision issued for the Stibnite Gold Project.',
+  announced_at: '2025-01-06T00:00:00Z',
+  effective_from: '2025-01-06',
+  effective_to: null,
+  country_code: 'USA',
+  severity: 3,
+  source_assertion_id: 'assert-2',
+  assertion: {
+    assertion_id: 'assert-2',
+    claim_text: 'The USDA Forest Service issued a final Record of Decision.',
+    page_reference: null,
+    table_reference: null,
+    provenance: 'reported',
+    confidence_score: 92,
+    reviewed_at: null,
+    source: {
+      source_id: 'source-2',
+      title: 'Record of Decision — Stibnite Gold Project',
+      publisher: 'USDA Forest Service',
+      source_type: 'government',
+      publication_date: '2025-01-06',
+      url: 'https://example.com/rod',
+      licence: 'Public domain',
+    },
+  },
+  impacts: [
+    {
+      event_id: 'event-1',
+      node_id: '11111111-1111-4111-8111-111111111111',
+      edge_id: null,
+      impact_type: 'permitting',
+      impact_direction: 'positive',
+      confidence_score: 90,
+      node: {
+        node_id: '11111111-1111-4111-8111-111111111111',
+        canonical_name: 'Stibnite Gold Project',
+        node_type: 'development_project',
+        country_code: 'USA',
+      },
+    },
+  ],
+};
+
+export const sampleTradeFlow: TradeFlowDetail = {
+  trade_flow_id: 'flow-1',
+  exporter_code: 'AUS',
+  importer_code: 'USA',
+  product_form_id: 'form-1',
+  period_start: '2024-01-01',
+  period_end: '2024-12-31',
+  gross_weight_kg: 2_500_000,
+  trade_value_usd: 9_000_000,
+  reporter_code: 'AUS',
+  partner_code: 'USA',
+  mirror_status: 'reporter',
+  source_id: 'source-3',
+  provenance: 'reported',
+  confidence_score: 88,
+  product_form: { product_form_id: 'form-1', name: 'Antimony ores and concentrates', hs_code: '261710' },
+  source: {
+    source_id: 'source-3',
+    title: 'UN Comtrade extract 2024',
+    publisher: 'UN Comtrade',
+    source_type: 'statistical_database',
+    publication_date: '2025-03-01',
+    url: 'https://example.com/comtrade',
+    licence: null,
+  },
+};
