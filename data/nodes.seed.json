@@ -1,0 +1,5 @@
+[
+  {"node_id":"seed-001","canonical_name":"Stibnite Gold Project","node_type":"development_project","status":"development","country_code":"USA","latitude":44.91,"longitude":-115.34,"provenance_class":"reported","confidence_score":82},
+  {"node_id":"seed-002","canonical_name":"Costerfield Operation","node_type":"mine","status":"operating","country_code":"AUS","latitude":-36.88,"longitude":144.79,"provenance_class":"reported","confidence_score":84},
+  {"node_id":"seed-003","canonical_name":"Hillgrove Project","node_type":"development_project","status":"development","country_code":"AUS","latitude":-30.57,"longitude":151.90,"provenance_class":"reported","confidence_score":78}
+]
