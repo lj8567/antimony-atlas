@@ -3,27 +3,29 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { collectAssetSources } from '@/components/asset-detail/collect-sources';
 import { SourcesDrawerButton } from '@/components/asset-detail/SourcesDrawerButton';
-import { ConfidenceIndicator, ProvenanceBadge, SeverityIndicator, StatusLabel } from '@/components/ui/badges';
+import { ConfidenceIndicator, EvidenceSummary, ProvenanceBadge, SeverityIndicator, StatusLabel } from '@/components/ui/badges';
 import { Hint } from '@/components/ui/Hint';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Panel } from '@/components/ui/Panel';
 import { SourceLink } from '@/components/ui/SourceLink';
-import { EmptyState, QueryFailure } from '@/components/ui/states';
+import { EmptyState, QueryFailure, WarningsNotice } from '@/components/ui/states';
 import { countryName } from '@/lib/countries';
 import {
   formatDate,
   formatEventType,
   formatFieldName,
   formatLocationPrecision,
+  formatMetricName,
   formatNodeType,
   formatPercent,
   formatPeriod,
   formatQuantity,
   isApproximateLocation,
   isStale,
+  normalizeConfidence,
 } from '@/lib/format';
 import { fetchAssetDetail, type AssetDetail } from '@/lib/supabase/queries/asset-detail';
-import type { AssertionWithSource, NodeAssertion } from '@/lib/supabase/types';
+import type { AssertionDetail } from '@/lib/supabase/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,27 +48,34 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
   if (result.data === null) notFound();
 
   const detail = result.data;
-  const { node } = detail;
+  const { node, summary } = detail;
   const sources = collectAssetSources(detail);
-  const profileAssertions = detail.assertions.filter((na) => na.field_name !== 'identity');
-  const identityAssertion = pickPrimary(detail.assertions.filter((na) => na.field_name === 'identity'));
+  const profileAssertions = detail.assertions.filter((a) => a.field_name !== 'location_precision');
   const quality = buildQualityFlags(detail);
+  const hasCoordinates = node.latitude !== null && node.longitude !== null;
 
   return (
     <div className="page">
       <PageHeader
         kicker={`${formatNodeType(node.node_type)} · ${countryName(node.country_code)}${node.region ? ` · ${node.region}` : ''}`}
-        title={node.canonical_name}
-        description={node.description ?? undefined}
+        title={node.name}
+        description={
+          node.aliases && node.aliases.length > 0
+            ? `Also known as ${node.aliases.join(', ')}.${node.notes ? ` ${node.notes}` : ''}`
+            : (node.notes ?? undefined)
+        }
         actions={
           <>
-            <SourcesDrawerButton entries={sources} assetName={node.canonical_name} />
-            <Link className="btn" href={`/map?focus=${node.node_id}`}>
-              View on map
-            </Link>
+            <SourcesDrawerButton entries={sources} assetName={node.name} />
+            {hasCoordinates && (
+              <Link className="btn" href={`/map?focus=${node.node_id}`}>
+                View on map
+              </Link>
+            )}
           </>
         }
       />
+      <WarningsNotice warnings={result.warnings} />
 
       <div className="kpi-grid">
         <div className="kpi">
@@ -74,55 +83,49 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
           <p className="kpi-value" style={{ fontSize: 15 }}>
             <StatusLabel status={node.status} />
           </p>
+          <p className="kpi-foot">canonical status from the nodes register</p>
+        </div>
+        <div className="kpi">
+          <p className="kpi-label">Owner / operator</p>
+          <p className="kpi-value" style={{ fontSize: 15 }}>
+            {detail.owner?.legal_name ?? detail.operator?.legal_name ?? 'Not reported'}
+          </p>
           <p className="kpi-foot">
-            {node.status_effective_date ? `as of ${formatDate(node.status_effective_date)}` : 'effective date not recorded'}
+            {detail.operator && detail.owner && detail.operator.entity_id !== detail.owner.entity_id
+              ? `operated by ${detail.operator.legal_name}`
+              : (detail.owner?.website && <SourceLink url={detail.owner.website} title="Website" />) || ' '}
           </p>
         </div>
         <div className="kpi">
-          <p className="kpi-label">Operator</p>
+          <p className="kpi-label">Evidence on file</p>
           <p className="kpi-value" style={{ fontSize: 15 }}>
-            {detail.node.operator?.legal_name ?? 'Not reported'}
+            <EvidenceSummary counts={summary.evidence} sourceCount={summary.source_count} />
           </p>
-          {detail.node.operator?.website && (
-            <p className="kpi-foot">
-              <SourceLink url={detail.node.operator.website} title="Website" />
-            </p>
-          )}
-        </div>
-        <div className="kpi">
-          <p className="kpi-label">Identity evidence</p>
-          <p className="kpi-value" style={{ fontSize: 15 }}>
-            {identityAssertion?.assertion ? (
-              <span className="inline-list">
-                <ProvenanceBadge provenance={identityAssertion.assertion.provenance} />
-                <ConfidenceIndicator score={identityAssertion.assertion.confidence_score} />
-              </span>
-            ) : (
-              <span className="note">Not scored</span>
-            )}
+          <p className="kpi-foot">
+            {summary.assertion_count} assertions · {summary.observation_count} observations
           </p>
         </div>
         <div className="kpi">
           <p className="kpi-label">Location</p>
           <p className="kpi-value mono" style={{ fontSize: 13.5 }}>
-            {node.latitude.toFixed(3)}, {node.longitude.toFixed(3)}
+            {hasCoordinates ? `${node.latitude!.toFixed(3)}, ${node.longitude!.toFixed(3)}` : 'No coordinates'}
           </p>
           <p className="kpi-foot">
-            {isApproximateLocation(node.location_precision) ? (
-              <Hint text="Coordinates are not surveyed positions. Precision reflects the best public disclosure for this site.">
-                <span>{formatLocationPrecision(node.location_precision)}</span>
+            {isApproximateLocation(summary.location_precision) ? (
+              <Hint text="Coordinates are not surveyed positions. Precision reflects the best public disclosure for this site; where no precision claim exists the location is treated as approximate.">
+                <span>{formatLocationPrecision(summary.location_precision)}</span>
               </Hint>
             ) : (
-              formatLocationPrecision(node.location_precision)
+              formatLocationPrecision(summary.location_precision)
             )}
           </p>
         </div>
         <div className="kpi">
-          <p className="kpi-label">Last reviewed</p>
+          <p className="kpi-label">Record updated</p>
           <p className="kpi-value" style={{ fontSize: 15 }}>
-            {formatDate(node.last_reviewed_at, 'Not reviewed')}
+            {formatDate(node.updated_at, 'Not recorded')}
           </p>
-          <p className="kpi-foot">first recorded {formatDate(node.first_seen_at)}</p>
+          <p className="kpi-foot">first recorded {formatDate(node.created_at)}</p>
         </div>
       </div>
 
@@ -130,13 +133,13 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
         <div className="col-span-8">
           <Panel
             title="Key metrics"
-            note="Original units and periods; estimate qualifiers are never removed"
+            note="Original units and periods; production, capacity, resources and reserves are never merged"
             flush
           >
             {detail.observations.length === 0 ? (
               <EmptyState
                 title="No quantitative observations recorded"
-                detail="Capacity, production and resource figures appear here with unit, period, estimate type and source."
+                detail="Capacity, production and resource figures appear here with unit, period and provenance."
               />
             ) : (
               <div className="table-scroll">
@@ -146,39 +149,37 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
                       <th>Metric</th>
                       <th className="num">Value</th>
                       <th>Period</th>
-                      <th>Estimate type</th>
+                      <th>Provenance</th>
                       <th>Confidence</th>
                       <th>Source</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {detail.observations.map((obs) => (
-                      <tr key={obs.observation_id}>
+                    {detail.observations.map((obs, index) => (
+                      <tr key={obs.observation_id ?? index}>
                         <td className="primary-cell">
-                          {obs.metric?.definition ? (
-                            <Hint text={obs.metric.definition}>
-                              <span>{obs.metric?.name ?? 'Unnamed metric'}</span>
+                          {obs.notes ? (
+                            <Hint text={obs.notes}>
+                              <span>{formatMetricName(obs.metric_name)}</span>
                             </Hint>
                           ) : (
-                            (obs.metric?.name ?? 'Unnamed metric')
+                            formatMetricName(obs.metric_name)
                           )}
                           {obs.product_form && <span className="cell-sub">{obs.product_form.name}</span>}
                         </td>
                         <td className="num">
-                          {obs.value_numeric !== null
-                            ? formatQuantity(obs.value_numeric, obs.unit)
-                            : (obs.value_text ?? 'Not reported')}
+                          {obs.value_numeric !== null ? formatQuantity(obs.value_numeric, obs.unit) : 'Not reported'}
                         </td>
                         <td>{formatPeriod(obs.period_start, obs.period_end)}</td>
                         <td>
-                          <ProvenanceBadge provenance={obs.estimate_type} />
+                          <ProvenanceBadge provenance={obs.provenance} />
                         </td>
                         <td>
-                          <ConfidenceIndicator score={obs.assertion?.confidence_score} />
+                          <ConfidenceIndicator score={normalizeConfidence(obs.confidence)} />
                         </td>
                         <td>
-                          {obs.assertion?.source ? (
-                            <SourceLink url={obs.assertion.source.url} title={obs.assertion.source.publisher} />
+                          {obs.source ? (
+                            <SourceLink url={obs.source.url} title={obs.source.publisher ?? obs.source.title} />
                           ) : (
                             <span className="note">Missing source</span>
                           )}
@@ -191,7 +192,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
             )}
           </Panel>
 
-          <Panel title="Asset profile" note="Sourced assertions" flush>
+          <Panel title="Asset profile" note="Sourced assertions; conflicts are shown, not reconciled" flush>
             {profileAssertions.length === 0 ? (
               <EmptyState title="No profile assertions recorded" />
             ) : (
@@ -201,6 +202,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
                     <tr>
                       <th>Field</th>
                       <th>Claim</th>
+                      <th>Effective</th>
                       <th>Provenance</th>
                       <th>Confidence</th>
                       <th>Source</th>
@@ -208,7 +210,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
                   </thead>
                   <tbody>
                     {groupAssertions(profileAssertions).map(({ fieldName, rows }) =>
-                      rows.map((na, index) => (
+                      rows.map((assertion, index) => (
                         <tr key={`${fieldName}-${index}`}>
                           <td className="primary-cell">
                             {index === 0 ? formatFieldName(fieldName) : ''}
@@ -216,16 +218,20 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
                               <span className="cell-sub">{rows.length} claims on file</span>
                             )}
                           </td>
-                          <td style={{ maxWidth: 420, whiteSpace: 'normal' }}>{na.assertion?.claim_text ?? '—'}</td>
+                          <td style={{ maxWidth: 420, whiteSpace: 'normal' }}>{assertion.value_text ?? '—'}</td>
+                          <td>{formatDate(assertion.effective_date, '—')}</td>
                           <td>
-                            <ProvenanceBadge provenance={na.assertion?.provenance ?? null} />
+                            <ProvenanceBadge provenance={assertion.provenance} />
                           </td>
                           <td>
-                            <ConfidenceIndicator score={na.assertion?.confidence_score} />
+                            <ConfidenceIndicator score={normalizeConfidence(assertion.confidence)} />
                           </td>
                           <td>
-                            {na.assertion?.source ? (
-                              <SourceLink url={na.assertion.source.url} title={na.assertion.source.publisher} />
+                            {assertion.source ? (
+                              <SourceLink
+                                url={assertion.source.url}
+                                title={assertion.source.publisher ?? assertion.source.title}
+                              />
                             ) : (
                               <span className="note">Missing source</span>
                             )}
@@ -239,39 +245,34 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
             )}
           </Panel>
 
-          <Panel title="Ownership" flush>
+          <Panel title="Ownership" note="History from node_ownership; the header shows the current registered owner" flush>
             {detail.ownership.length === 0 ? (
-              <EmptyState title="No ownership records" detail="Ownership stakes appear here with effective dates and sources." />
+              <EmptyState title="No ownership records" detail="Ownership stakes appear here with roles, effective dates and sources." />
             ) : (
               <div className="table-scroll">
                 <table className="data-table">
                   <thead>
                     <tr>
                       <th>Entity</th>
+                      <th>Role</th>
                       <th className="num">Stake</th>
-                      <th>Effective</th>
-                      <th>Provenance</th>
+                      <th>Effective from</th>
                       <th>Source</th>
                     </tr>
                   </thead>
                   <tbody>
                     {detail.ownership.map((own, index) => (
-                      <tr key={index}>
+                      <tr key={own.node_ownership_id ?? index}>
                         <td className="primary-cell">
                           {own.entity?.legal_name ?? 'Unknown entity'}
                           {own.entity?.entity_type && <span className="cell-sub">{formatNodeType(own.entity.entity_type)}</span>}
                         </td>
-                        <td className="num">{formatPercent(own.ownership_pct)}</td>
+                        <td>{formatNodeType(own.ownership_role)}</td>
+                        <td className="num">{formatPercent(own.ownership_percentage)}</td>
+                        <td>{formatDate(own.effective_from, 'Not dated')}</td>
                         <td>
-                          {formatDate(own.effective_from, 'Not dated')}
-                          {own.effective_to ? ` – ${formatDate(own.effective_to)}` : ' – present'}
-                        </td>
-                        <td>
-                          <ProvenanceBadge provenance={own.assertion?.provenance ?? null} />
-                        </td>
-                        <td>
-                          {own.assertion?.source ? (
-                            <SourceLink url={own.assertion.source.url} title={own.assertion.source.publisher} />
+                          {own.source ? (
+                            <SourceLink url={own.source.url} title={own.source.publisher ?? own.source.title} />
                           ) : (
                             <span className="note">Missing source</span>
                           )}
@@ -292,7 +293,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
             {detail.edges.length === 0 ? (
               <EmptyState
                 title="No recorded connections"
-                detail="Links to concentrators, smelters and gateways appear here once evidenced. Absence of a link is not evidence of absence."
+                detail="Links to processing facilities and gateways appear here once evidenced. Absence of a link is not evidence of absence."
               />
             ) : (
               <div className="table-scroll">
@@ -317,24 +318,28 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
                             {outbound ? '→ ' : '← '}
                             {other ? (
                               <Link href={`/assets/${other.node_id}`} className="row-link">
-                                {other.canonical_name}
+                                {other.name}
                               </Link>
                             ) : (
                               'Unknown node'
                             )}
-                            {other && <span className="cell-sub">{formatNodeType(other.node_type)} · {countryName(other.country_code)}</span>}
+                            {other && (
+                              <span className="cell-sub">
+                                {formatNodeType(other.node_type)} · {countryName(other.country_code)}
+                              </span>
+                            )}
                           </td>
                           <td>{formatNodeType(edge.edge_type)}</td>
                           <td>{edge.product_form?.name ?? <span className="note">Not specified</span>}</td>
                           <td>
-                            <ProvenanceBadge provenance={edge.relationship_status} />
+                            <ProvenanceBadge provenance={edge.provenance} />
                           </td>
                           <td>
-                            <ConfidenceIndicator score={edge.confidence_score} />
+                            <ConfidenceIndicator score={normalizeConfidence(edge.confidence)} />
                           </td>
                           <td>
-                            {edge.assertion?.source ? (
-                              <SourceLink url={edge.assertion.source.url} title={edge.assertion.source.publisher} />
+                            {edge.source ? (
+                              <SourceLink url={edge.source.url} title={edge.source.publisher ?? edge.source.title} />
                             ) : (
                               <span className="note">Missing source</span>
                             )}
@@ -357,18 +362,16 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
               <ul className="timeline">
                 {detail.events.map((event) => (
                   <li key={event.event_id} className={`sev-${event.severity ?? 1}`}>
-                    <strong style={{ fontSize: 12.5 }}>{event.headline}</strong>
+                    <strong style={{ fontSize: 12.5 }}>{event.title}</strong>
                     <div className="note" style={{ margin: '2px 0 4px' }}>
-                      {formatEventType(event.event_type)} · {formatDate(event.announced_at)}
+                      {formatEventType(event.event_type)} · {formatDate(event.event_date)}
                     </div>
-                    {event.description && (
-                      <p style={{ margin: '0 0 5px', fontSize: 12, color: 'var(--ink-2)' }}>{event.description}</p>
+                    {event.summary && (
+                      <p style={{ margin: '0 0 5px', fontSize: 12, color: 'var(--ink-2)' }}>{event.summary}</p>
                     )}
                     <div className="inline-list">
                       <SeverityIndicator severity={event.severity} />
-                      {event.assertion?.source && (
-                        <SourceLink url={event.assertion.source.url} title={event.assertion.source.publisher} />
-                      )}
+                      {event.source && <SourceLink url={event.source.url} title={event.source.publisher ?? event.source.title} />}
                     </div>
                   </li>
                 ))}
@@ -396,16 +399,20 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
               <dd>{formatNodeType(node.node_type)}</dd>
               <dt>Country</dt>
               <dd>
-                <Link href={`/countries/${node.country_code}`}>{countryName(node.country_code)}</Link>
+                {node.country_code ? (
+                  <Link href={`/countries/${node.country_code}`}>{countryName(node.country_code)}</Link>
+                ) : (
+                  'Not reported'
+                )}
               </dd>
               <dt>Region</dt>
               <dd>{node.region ?? 'Not reported'}</dd>
               <dt>Coordinates</dt>
               <dd className="mono">
-                {node.latitude.toFixed(4)}, {node.longitude.toFixed(4)}
+                {hasCoordinates ? `${node.latitude!.toFixed(4)}, ${node.longitude!.toFixed(4)}` : 'Not recorded'}
               </dd>
               <dt>Location precision</dt>
-              <dd>{formatLocationPrecision(node.location_precision)}</dd>
+              <dd>{formatLocationPrecision(summary.location_precision)}</dd>
               <dt>Observations</dt>
               <dd>{detail.observations.length}</dd>
               <dt>Assertions</dt>
@@ -420,64 +427,58 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
   );
 }
 
-function pickPrimary(assertions: NodeAssertion[]): NodeAssertion | null {
-  return assertions.find((na) => na.is_primary) ?? assertions[0] ?? null;
-}
-
-function groupAssertions(assertions: NodeAssertion[]): Array<{ fieldName: string; rows: NodeAssertion[] }> {
-  const byField = new Map<string, NodeAssertion[]>();
-  for (const na of assertions) {
-    const list = byField.get(na.field_name) ?? [];
-    list.push(na);
-    byField.set(na.field_name, list);
+function groupAssertions(assertions: AssertionDetail[]): Array<{ fieldName: string; rows: AssertionDetail[] }> {
+  const byField = new Map<string, AssertionDetail[]>();
+  for (const assertion of assertions) {
+    const list = byField.get(assertion.field_name) ?? [];
+    list.push(assertion);
+    byField.set(assertion.field_name, list);
   }
+  // rows within a field are already newest-effective-date-first from the index
   return [...byField.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([fieldName, rows]) => ({
-      fieldName,
-      rows: rows.sort((a, b) => Number(b.is_primary) - Number(a.is_primary)),
-    }));
+    .map(([fieldName, rows]) => ({ fieldName, rows }));
 }
 
 function buildQualityFlags(detail: AssetDetail): string[] {
   const flags: string[] = [];
-  const { node } = detail;
+  const { node, summary } = detail;
 
-  if (isApproximateLocation(node.location_precision)) {
-    flags.push(`Coordinates are ${formatLocationPrecision(node.location_precision).toLowerCase()} — do not use for site-level analysis.`);
+  if (node.latitude === null || node.longitude === null) {
+    flags.push('No coordinates recorded — this asset cannot be plotted on the map.');
+  } else if (isApproximateLocation(summary.location_precision)) {
+    flags.push(
+      summary.location_precision
+        ? `Coordinates are ${formatLocationPrecision(summary.location_precision).toLowerCase()} — do not use for site-level analysis.`
+        : 'No location-precision claim on file — coordinates are treated as approximate.',
+    );
   }
-  const modelledCount = detail.observations.filter((obs) => obs.estimate_type === 'modelled').length;
+  const modelledCount = detail.observations.filter((obs) => obs.provenance === 'modelled').length;
   if (modelledCount > 0) {
-    flags.push(`${modelledCount} observation${modelledCount === 1 ? ' is a' : 's are'} modelled conversion${modelledCount === 1 ? '' : 's'} derived from reported inputs.`);
+    flags.push(
+      `${modelledCount} observation${modelledCount === 1 ? ' is a' : 's are'} modelled conversion${modelledCount === 1 ? '' : 's'} derived from reported inputs.`,
+    );
   }
-  const lowConfidence: AssertionWithSource[] = [
-    ...detail.assertions.map((na) => na.assertion),
-    ...detail.observations.map((obs) => obs.assertion),
-  ].filter((a): a is AssertionWithSource => a !== null && a.confidence_score < 65);
-  if (lowConfidence.length > 0) {
-    flags.push(`${lowConfidence.length} claim${lowConfidence.length === 1 ? '' : 's'} carry low confidence (< 65/100).`);
+  const lowConfidence = [...detail.assertions, ...detail.observations].filter((claim) => {
+    const normalized = normalizeConfidence(claim.confidence);
+    return normalized !== null && normalized < 65;
+  }).length;
+  if (lowConfidence > 0) {
+    flags.push(`${lowConfidence} claim${lowConfidence === 1 ? '' : 's'} carry low confidence (< 65/100).`);
   }
-  const multiClaimFields = groupAssertions(detail.assertions.filter((na) => na.field_name !== 'identity')).filter(
-    ({ rows }) => rows.length > 1,
-  );
+  const multiClaimFields = groupAssertions(detail.assertions).filter(({ rows }) => rows.length > 1);
   if (multiClaimFields.length > 0) {
     flags.push(
       `Multiple claims on file for: ${multiClaimFields.map(({ fieldName }) => formatFieldName(fieldName)).join(', ')} — conflicts are shown, not reconciled.`,
     );
   }
-  if (isStale(node.last_reviewed_at)) {
-    flags.push(
-      node.last_reviewed_at
-        ? `Record last reviewed ${formatDate(node.last_reviewed_at)} — more than 12 months ago.`
-        : 'Record has no review date on file.',
-    );
+  if (isStale(node.updated_at)) {
+    flags.push(`Record last updated ${formatDate(node.updated_at)} — more than 12 months ago.`);
   }
   if (detail.observations.length === 0) {
     flags.push('No quantitative observations recorded yet.');
   }
-  const unsourced =
-    detail.assertions.filter((na) => !na.assertion?.source).length +
-    detail.observations.filter((obs) => !obs.assertion?.source).length;
+  const unsourced = [...detail.assertions, ...detail.observations].filter((claim) => !claim.source_id).length;
   if (unsourced > 0) {
     flags.push(`${unsourced} claim${unsourced === 1 ? '' : 's'} missing a source link.`);
   }

@@ -28,8 +28,8 @@ describe('AssetExplorer', () => {
     );
     expect(screen.getByText('Costerfield Operation')).toBeInTheDocument();
     // metric keeps qualifiers
-    expect(screen.getByText('12,300 t contained Sb')).toBeInTheDocument();
-    expect(screen.getByText(/Projected recovered antimony/)).toBeInTheDocument();
+    expect(screen.getByText('12,300 tonnes Sb contained')).toBeInTheDocument();
+    expect(screen.getByText(/Antimony production/)).toBeInTheDocument();
     // missing metric is labelled, not zeroed
     expect(screen.getByText('Not yet researched')).toBeInTheDocument();
     expect(screen.getByText('2 of 2 assets')).toBeInTheDocument();
@@ -37,7 +37,7 @@ describe('AssetExplorer', () => {
 
   it('pushes filter changes into the URL', () => {
     render(<AssetExplorer items={items} />);
-    fireEvent.change(screen.getByPlaceholderText('Asset, region, country, owner…'), {
+    fireEvent.change(screen.getByPlaceholderText('Asset, alias, region, country, owner…'), {
       target: { value: 'stibnite' },
     });
     expect(replaceMock).toHaveBeenCalledWith('/assets?q=stibnite', { scroll: false });
@@ -54,13 +54,13 @@ describe('AssetExplorer', () => {
   it('toggles sort direction through the URL on repeated header clicks', () => {
     currentSearch = '';
     const { unmount } = render(<AssetExplorer items={items} />);
-    fireEvent.click(screen.getByRole('button', { name: /Sort by Confidence/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Sort by Max conf\./ }));
     expect(replaceMock).toHaveBeenCalledWith('/assets?sort=confidence', { scroll: false });
     unmount();
     currentSearch = 'sort=confidence';
     replaceMock.mockClear();
     render(<AssetExplorer items={items} />);
-    fireEvent.click(screen.getByRole('button', { name: /Sort by Confidence, currently ascending/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Sort by Max conf\., currently ascending/ }));
     expect(replaceMock).toHaveBeenCalledWith('/assets?sort=confidence&dir=desc', { scroll: false });
   });
 

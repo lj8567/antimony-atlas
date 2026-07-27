@@ -45,32 +45,41 @@ describe('asset filter URL state', () => {
 });
 
 describe('filterAssets', () => {
-  it('searches names, regions, owners and country names', () => {
+  it('searches names, aliases, regions, owners and country names', () => {
     expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, q: 'idaho' })).toEqual([stibnite]);
-    expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, q: 'mandalay' })).toEqual([costerfield]);
+    expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, q: 'alkane' })).toEqual([costerfield]);
     expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, q: 'australia' })).toEqual([costerfield]);
+    // alias search
+    expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, q: 'stibnite' })).toEqual([stibnite]);
   });
-  it('filters by country, type, status and supply category', () => {
+  it('filters by country, type, status and supply category (statuses are live enum values)', () => {
     expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, country: 'AUS' })).toEqual([costerfield]);
-    expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, type: 'mine' })).toEqual([costerfield]);
+    expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, type: 'mine_and_concentrator' })).toEqual([costerfield]);
     expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, status: 'construction' })).toEqual([stibnite]);
     expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, supply: 'operating' })).toEqual([costerfield]);
     expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, supply: 'prospective' })).toEqual([stibnite]);
+    // a made-up status like "active" matches nothing
+    expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, status: 'active' })).toEqual([]);
   });
-  it('filters by confidence band and provenance', () => {
+  it('filters by evidence provenance and max-confidence band', () => {
+    // stibnite has modelled claims; costerfield does not
+    expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, provenance: 'modelled' })).toEqual([stibnite]);
+    expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, provenance: 'reported' })).toHaveLength(2);
     expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, confidence: 'high' })).toEqual([costerfield]);
     expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, confidence: 'medium' })).toEqual([stibnite]);
-    expect(filterAssets(items, { ...DEFAULT_ASSET_FILTERS, provenance: 'reported' })).toHaveLength(2);
   });
 });
 
 describe('sortAssets', () => {
-  it('sorts by confidence descending', () => {
+  it('sorts by max confidence descending', () => {
     const sorted = sortAssets(items, 'confidence', 'desc');
     expect(sorted[0]).toBe(costerfield);
   });
   it('keeps missing values last in either direction', () => {
-    const noConfidence = makeAsset({ node_id: '33333333-3333-4333-8333-333333333333', canonical_name: 'Mystery' }, { identity_confidence: null });
+    const noConfidence = makeAsset(
+      { node_id: '33333333-3333-4333-8333-333333333333', name: 'Mystery' },
+      { max_confidence: null },
+    );
     const sorted = sortAssets([noConfidence, ...items], 'confidence', 'desc');
     expect(sorted.at(-1)).toBe(noConfidence);
     const sortedAsc = sortAssets([noConfidence, ...items], 'confidence', 'asc');
@@ -95,19 +104,20 @@ describe('trade filters', () => {
 });
 
 describe('event filters', () => {
-  it('matches country against the event and its impacted nodes', () => {
-    const base = { q: '', type: '', country: '', minSeverity: '', year: '' };
+  const base = { q: '', type: '', country: '', minSeverity: '', year: '' };
+  it('matches country via the linked node (events carry no country of their own)', () => {
     expect(filterEvents([sampleEvent], { ...base, country: 'USA' })).toHaveLength(1);
     expect(filterEvents([sampleEvent], { ...base, country: 'AUS' })).toHaveLength(0);
   });
   it('applies minimum severity and excludes unrated events', () => {
-    const base = { q: '', type: '', country: '', minSeverity: '3', year: '' };
-    expect(filterEvents([sampleEvent], base)).toHaveLength(1);
+    expect(filterEvents([sampleEvent], { ...base, minSeverity: '3' })).toHaveLength(1);
     const unrated = { ...sampleEvent, event_id: 'event-2', severity: null };
-    expect(filterEvents([unrated], base)).toHaveLength(0);
+    expect(filterEvents([unrated], { ...base, minSeverity: '3' })).toHaveLength(0);
   });
-  it('searches headlines and impacted asset names', () => {
-    const base = { q: 'stibnite', type: '', country: '', minSeverity: '', year: '' };
-    expect(filterEvents([sampleEvent], base)).toHaveLength(1);
+  it('filters by event_date year and searches title/summary/asset name', () => {
+    expect(filterEvents([sampleEvent], { ...base, year: '2025' })).toHaveLength(1);
+    expect(filterEvents([sampleEvent], { ...base, year: '2024' })).toHaveLength(0);
+    expect(filterEvents([sampleEvent], { ...base, q: 'stibnite' })).toHaveLength(1);
+    expect(filterEvents([sampleEvent], { ...base, q: 'record of decision' })).toHaveLength(1);
   });
 });

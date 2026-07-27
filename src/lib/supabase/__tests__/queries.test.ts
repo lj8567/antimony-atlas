@@ -22,6 +22,6 @@ describe('query modules without Supabase configuration', () => {
 
   it('treats a non-UUID asset id as not-found without querying', async () => {
     const result = await fetchAssetDetail('not-a-uuid');
-    expect(result).toEqual({ ok: true, data: null });
+    expect(result).toEqual({ ok: true, data: null, warnings: [] });
   });
 });

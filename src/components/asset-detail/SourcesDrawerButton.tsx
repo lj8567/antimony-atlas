@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { ConfidenceIndicator, ProvenanceBadge } from '@/components/ui/badges';
 import { Drawer } from '@/components/ui/Drawer';
 import { SourceLink } from '@/components/ui/SourceLink';
-import { formatDate } from '@/lib/format';
+import { formatDate, normalizeConfidence } from '@/lib/format';
 import type { AssetSourceEntry } from './collect-sources';
 
 /**
@@ -28,7 +28,8 @@ export function SourcesDrawerButton({ entries, assetName }: { entries: AssetSour
                 <SourceLink url={entry.source.url} title={entry.source.title} />
               </h4>
               <p className="source-meta">
-                {entry.source.publisher} · {entry.source.source_type} · Published{' '}
+                {entry.source.publisher ?? 'Publisher not recorded'}
+                {entry.source.source_type ? ` · ${entry.source.source_type}` : ''} · Published{' '}
                 {formatDate(entry.source.publication_date)}
                 {entry.source.licence ? ` · ${entry.source.licence}` : ''}
               </p>
@@ -41,10 +42,14 @@ export function SourcesDrawerButton({ entries, assetName }: { entries: AssetSour
                     <li key={index} style={{ marginBottom: 5 }}>
                       <span className="note">{claim.kind}:</span> {claim.label}
                       {claim.reference ? <span className="note"> ({claim.reference})</span> : null}
-                      <span className="inline-list" style={{ marginTop: 2 }}>
-                        <ProvenanceBadge provenance={claim.provenance} withHint={false} />
-                        <ConfidenceIndicator score={claim.confidence} withHint={false} />
-                      </span>
+                      {(claim.provenance || claim.confidence !== null) && (
+                        <span className="inline-list" style={{ marginTop: 2 }}>
+                          {claim.provenance && <ProvenanceBadge provenance={claim.provenance} withHint={false} />}
+                          {claim.confidence !== null && (
+                            <ConfidenceIndicator score={normalizeConfidence(claim.confidence)} withHint={false} />
+                          )}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>

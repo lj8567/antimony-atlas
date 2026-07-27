@@ -70,16 +70,22 @@ src/
 
 ## Database
 
-The schema lives in `supabase/migrations/` and is the source of truth:
+The frontend reads the **live** Supabase schema (documented in `docs/implementation-notes.md` §0): `nodes`
+(with `owner_entity_id`/`operator_entity_id`), `entities`, EAV-style `assertions` (`field_name` +
+`value_text`), `observations` (free-text `metric_name`), `node_ownership`, `sources`, `events`, `metals` and
+`product_forms`. `edges` and `trade_flows` are handled gracefully until they exist. All reads are plain
+`select("*")` per table with in-memory joins — no PostgREST embeds — so relationship-name changes cannot break
+pages, and per-table failures surface as visible warnings instead of blanking the product.
 
-1. `0001_initial.sql` — tables, enums (`provenance_class`, `node_status`), generated confidence score, seed
-   metal + three antimony product forms (HS 261710, 811010, 282580).
-2. `0002_security.sql` — row-level security, anonymous read policies, and the `public_nodes` view (per-node
-   identity provenance/confidence).
+> Note: the SQL under `supabase/migrations/` is the original pilot schema and no longer matches the live
+> database, which was evolved through separate migrations. Treat the live database as authoritative.
 
-The frontend rebuild added **no migrations, tables, views or RPCs** — it reads the existing schema as-is.
-Research workflow and data-entry rules are documented in `docs/research-workflow.md` and
-`docs/data-dictionary.md`; CSV templates live in `data/`.
+A diagnostic page at **`/status`** probes every table with the anonymous role and shows row counts or the
+exact PostgREST error — the first place to look if pages show no data (missing env vars, wrong project,
+missing grants, RLS filtering, or absent tables each produce a distinct signature there).
+
+The frontend adds **no migrations, tables, views or RPCs**. Research workflow and data-entry rules are
+documented in `docs/research-workflow.md` and `docs/data-dictionary.md`; CSV templates live in `data/`.
 
 ## Evidence rules enforced by the UI
 

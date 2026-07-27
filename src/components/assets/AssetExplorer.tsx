@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { ConfidenceIndicator, ProvenanceBadge, StatusLabel } from '@/components/ui/badges';
+import { ConfidenceIndicator, EvidenceSummary, StatusLabel } from '@/components/ui/badges';
 import {
   SearchField,
   Segmented,
@@ -12,6 +12,7 @@ import {
   type SelectOption,
 } from '@/components/ui/controls';
 import { ExportCsvButton } from '@/components/ui/ExportCsvButton';
+import { Hint } from '@/components/ui/Hint';
 import { MetricValue } from '@/components/ui/MetricValue';
 import { EmptyState } from '@/components/ui/states';
 import { countryName } from '@/lib/countries';
@@ -33,43 +34,40 @@ import type { AssetListItem } from '@/lib/supabase/types';
 const PAGE_SIZE = 50;
 
 const CSV_COLUMNS: CsvColumn<AssetListItem>[] = [
-  { label: 'Asset', value: (item) => item.node.canonical_name },
+  { label: 'Asset', value: (item) => item.node.name },
+  { label: 'Aliases', value: (item) => (item.node.aliases ?? []).join('; ') },
   { label: 'Country code', value: (item) => item.node.country_code },
   { label: 'Country', value: (item) => countryName(item.node.country_code) },
   { label: 'Region', value: (item) => item.node.region },
   { label: 'Node type', value: (item) => formatNodeType(item.node.node_type) },
   { label: 'Status', value: (item) => formatStatus(item.node.status) },
+  { label: 'Owner', value: (item) => item.owner_name },
   { label: 'Operator', value: (item) => item.operator_name },
-  { label: 'Owners (current)', value: (item) => item.owner_names.join('; ') },
-  { label: 'Latest metric', value: (item) => item.latest_observation?.metric?.name ?? '' },
-  { label: 'Latest metric value', value: (item) => item.latest_observation?.value_numeric ?? item.latest_observation?.value_text ?? '' },
-  { label: 'Unit', value: (item) => item.latest_observation?.unit ?? '' },
+  { label: 'Principal metric', value: (item) => item.principal_observation?.metric_name ?? '' },
+  { label: 'Principal metric value', value: (item) => item.principal_observation?.value_numeric ?? '' },
+  { label: 'Unit', value: (item) => item.principal_observation?.unit ?? '' },
   {
     label: 'Metric period',
     value: (item) =>
-      item.latest_observation
-        ? formatPeriod(item.latest_observation.period_start, item.latest_observation.period_end)
+      item.principal_observation
+        ? formatPeriod(item.principal_observation.period_start, item.principal_observation.period_end)
         : '',
   },
-  { label: 'Metric product form', value: (item) => item.latest_observation?.product_form?.name ?? '' },
+  { label: 'Metric product form', value: (item) => item.principal_observation?.product_form?.name ?? '' },
   {
-    label: 'Metric estimate type',
-    value: (item) => (item.latest_observation ? PROVENANCE_LABEL[item.latest_observation.estimate_type] : ''),
+    label: 'Metric provenance',
+    value: (item) => (item.principal_observation ? PROVENANCE_LABEL[item.principal_observation.provenance] : ''),
   },
-  {
-    label: 'Metric source URL',
-    value: (item) => item.latest_observation?.assertion?.source?.url ?? '',
-  },
-  {
-    label: 'Identity provenance',
-    value: (item) => (item.identity_provenance ? PROVENANCE_LABEL[item.identity_provenance] : ''),
-  },
-  { label: 'Identity confidence (0-100)', value: (item) => item.identity_confidence },
+  { label: 'Metric source URL', value: (item) => item.principal_observation?.source?.url ?? '' },
+  { label: 'Reported claims', value: (item) => item.evidence.reported },
+  { label: 'Modelled claims', value: (item) => item.evidence.modelled },
+  { label: 'Unverified claims', value: (item) => item.evidence.unverified },
+  { label: 'Max claim confidence (0-100)', value: (item) => item.max_confidence },
   { label: 'Observations on file', value: (item) => item.observation_count },
   { label: 'Distinct sources', value: (item) => item.source_count },
-  { label: 'Latest event', value: (item) => item.latest_event?.headline ?? '' },
-  { label: 'Last reviewed', value: (item) => formatDate(item.node.last_reviewed_at, '') },
-  { label: 'Location precision', value: (item) => item.node.location_precision },
+  { label: 'Location precision', value: (item) => item.location_precision ?? 'Not recorded' },
+  { label: 'Latest event', value: (item) => item.latest_event?.title ?? '' },
+  { label: 'Record updated', value: (item) => formatDate(item.node.updated_at, '') },
 ];
 
 export function AssetExplorer({ items }: { items: AssetListItem[] }) {
@@ -110,7 +108,7 @@ export function AssetExplorer({ items }: { items: AssetListItem[] }) {
       <div className="filter-bar">
         <SearchField
           value={filters.q}
-          placeholder="Asset, region, country, owner…"
+          placeholder="Asset, alias, region, country, owner…"
           onChange={(q) => apply({ q })}
         />
         <SelectField label="Country" value={filters.country} options={options.countries} onChange={(country) => apply({ country })} />
@@ -131,9 +129,9 @@ export function AssetExplorer({ items }: { items: AssetListItem[] }) {
           label="Provenance"
           value={filters.provenance}
           options={[
-            { value: 'reported', label: 'Reported' },
-            { value: 'modelled', label: 'Modelled' },
-            { value: 'unverified', label: 'Unverified' },
+            { value: 'reported', label: 'Has reported claims' },
+            { value: 'modelled', label: 'Has modelled claims' },
+            { value: 'unverified', label: 'Has unverified claims' },
           ]}
           onChange={(provenance) => apply({ provenance })}
         />
@@ -208,19 +206,21 @@ export function AssetExplorer({ items }: { items: AssetListItem[] }) {
                 </th>
                 <th>Owner / operator</th>
                 <th>Principal metric</th>
-                <th>Provenance</th>
+                <th>Evidence</th>
                 <th>
-                  <SortHeader
-                    label="Confidence"
-                    active={filters.sort === 'confidence'}
-                    direction={filters.dir}
-                    onSort={() => toggleSort('confidence')}
-                  />
+                  <Hint text="Highest normalised claim confidence on file for this asset. Per-claim scores are on the asset page.">
+                    <SortHeader
+                      label="Max conf."
+                      active={filters.sort === 'confidence'}
+                      direction={filters.dir}
+                      onSort={() => toggleSort('confidence')}
+                    />
+                  </Hint>
                 </th>
                 <th>Latest event</th>
                 <th>
                   <SortHeader
-                    label="Reviewed"
+                    label="Updated"
                     active={filters.sort === 'reviewed'}
                     direction={filters.dir}
                     onSort={() => toggleSort('reviewed')}
@@ -233,47 +233,56 @@ export function AssetExplorer({ items }: { items: AssetListItem[] }) {
                 <tr key={item.node.node_id}>
                   <td className="primary-cell">
                     <Link href={`/assets/${item.node.node_id}`} className="row-link">
-                      {item.node.canonical_name}
+                      {item.node.name}
                     </Link>
-                    {item.node.region && <span className="cell-sub">{item.node.region}</span>}
+                    <span className="cell-sub">
+                      {item.node.region ?? ''}
+                      {item.node.aliases && item.node.aliases.length > 0
+                        ? `${item.node.region ? ' · ' : ''}aka ${item.node.aliases.join(', ')}`
+                        : ''}
+                    </span>
                   </td>
                   <td>
-                    <Link href={`/countries/${item.node.country_code}`}>{countryName(item.node.country_code)}</Link>
+                    {item.node.country_code ? (
+                      <Link href={`/countries/${item.node.country_code}`}>{countryName(item.node.country_code)}</Link>
+                    ) : (
+                      <span className="note">Not reported</span>
+                    )}
                   </td>
                   <td>{formatNodeType(item.node.node_type)}</td>
                   <td>
                     <StatusLabel status={item.node.status} />
                   </td>
                   <td>
-                    {item.operator_name ?? item.owner_names[0] ?? <span className="note">Not reported</span>}
-                    {item.owner_names.length > 0 && item.operator_name && (
-                      <span className="cell-sub">{item.owner_names.join(', ')}</span>
+                    {item.owner_name ?? item.operator_name ?? <span className="note">Not reported</span>}
+                    {item.operator_name && item.owner_name && item.operator_name !== item.owner_name && (
+                      <span className="cell-sub">op. {item.operator_name}</span>
                     )}
                   </td>
                   <td>
-                    {item.latest_observation ? (
-                      <MetricValue observation={item.latest_observation} compact />
+                    {item.principal_observation ? (
+                      <MetricValue observation={item.principal_observation} compact />
                     ) : (
                       <span className="note">Not yet researched</span>
                     )}
                   </td>
                   <td>
-                    <ProvenanceBadge provenance={item.identity_provenance} />
+                    <EvidenceSummary counts={item.evidence} sourceCount={item.source_count} />
                   </td>
                   <td>
-                    <ConfidenceIndicator score={item.identity_confidence} />
+                    <ConfidenceIndicator score={item.max_confidence} />
                   </td>
                   <td>
                     {item.latest_event ? (
                       <span style={{ fontSize: 12 }}>
-                        {item.latest_event.headline}
-                        <span className="cell-sub">{formatDate(item.latest_event.announced_at)}</span>
+                        {item.latest_event.title}
+                        <span className="cell-sub">{formatDate(item.latest_event.event_date)}</span>
                       </span>
                     ) : (
                       <span className="note">None linked</span>
                     )}
                   </td>
-                  <td>{formatDate(item.node.last_reviewed_at, 'Not reviewed')}</td>
+                  <td>{formatDate(item.node.updated_at, 'Not recorded')}</td>
                 </tr>
               ))}
             </tbody>
@@ -316,7 +325,7 @@ function deriveOptions(items: AssetListItem[]): {
   statuses: SelectOption[];
   productForms: SelectOption[];
 } {
-  const countries = [...new Set(items.map((item) => item.node.country_code))]
+  const countries = [...new Set(items.map((item) => item.node.country_code).filter((c): c is string => Boolean(c)))]
     .sort((a, b) => countryName(a).localeCompare(countryName(b)))
     .map((code) => ({ value: code, label: countryName(code) }));
   const regions = [...new Set(items.map((item) => item.node.region).filter((r): r is string => Boolean(r)))]
@@ -331,7 +340,7 @@ function deriveOptions(items: AssetListItem[]): {
   }));
   const formMap = new Map<string, string>();
   for (const item of items) {
-    const form = item.latest_observation?.product_form;
+    const form = item.principal_observation?.product_form;
     if (form) formMap.set(form.product_form_id, form.name);
   }
   const productForms = [...formMap.entries()]

@@ -1,91 +1,81 @@
-import { formatFieldName } from '@/lib/format';
+import { formatFieldName, formatMetricName } from '@/lib/format';
 import type { AssetDetail } from '@/lib/supabase/queries/asset-detail';
-import type { ProvenanceClass, SourceRef } from '@/lib/supabase/types';
+import type { ProvenanceClass, SourceRow } from '@/lib/supabase/types';
 
 export interface SupportedClaim {
-  kind: 'Assertion' | 'Observation' | 'Ownership' | 'Connection' | 'Event';
+  kind: 'Assertion' | 'Observation' | 'Ownership' | 'Event' | 'Connection';
   label: string;
-  provenance: ProvenanceClass;
-  confidence: number;
+  provenance: ProvenanceClass | null;
+  confidence: number | null;
   reference: string | null;
 }
 
 export interface AssetSourceEntry {
-  source: SourceRef;
+  source: SourceRow;
   supports: SupportedClaim[];
 }
 
 /**
  * Deduplicate every source cited across a node's assertions, observations,
- * ownership records, edges and events, listing what each source supports.
+ * ownership records, events and edges, listing what each source supports.
  */
 export function collectAssetSources(detail: AssetDetail): AssetSourceEntry[] {
   const bySourceId = new Map<string, AssetSourceEntry>();
 
-  const add = (source: SourceRef | null | undefined, claim: SupportedClaim) => {
+  const add = (source: SourceRow | null | undefined, claim: SupportedClaim) => {
     if (!source) return;
     const entry = bySourceId.get(source.source_id) ?? { source, supports: [] };
     entry.supports.push(claim);
     bySourceId.set(source.source_id, entry);
   };
 
-  for (const nodeAssertion of detail.assertions) {
-    const assertion = nodeAssertion.assertion;
-    if (!assertion) continue;
+  for (const assertion of detail.assertions) {
     add(assertion.source, {
       kind: 'Assertion',
-      label: formatFieldName(nodeAssertion.field_name),
+      label: formatFieldName(assertion.field_name),
       provenance: assertion.provenance,
-      confidence: assertion.confidence_score,
-      reference: assertion.page_reference ?? assertion.table_reference,
+      confidence: assertion.confidence,
+      reference: assertion.source_reference,
     });
   }
 
   for (const observation of detail.observations) {
-    const assertion = observation.assertion;
-    if (!assertion) continue;
-    add(assertion.source, {
+    add(observation.source, {
       kind: 'Observation',
-      label: observation.metric?.name ?? 'Quantitative observation',
-      provenance: assertion.provenance,
-      confidence: assertion.confidence_score,
-      reference: assertion.page_reference ?? assertion.table_reference,
+      label: formatMetricName(observation.metric_name),
+      provenance: observation.provenance,
+      confidence: observation.confidence,
+      reference: observation.source_reference,
     });
   }
 
   for (const ownership of detail.ownership) {
-    const assertion = ownership.assertion;
-    if (!assertion) continue;
-    add(assertion.source, {
+    add(ownership.source, {
       kind: 'Ownership',
       label: ownership.entity?.legal_name ?? 'Ownership record',
-      provenance: assertion.provenance,
-      confidence: assertion.confidence_score,
-      reference: assertion.page_reference ?? assertion.table_reference,
-    });
-  }
-
-  for (const edge of detail.edges) {
-    const assertion = edge.assertion;
-    if (!assertion) continue;
-    add(assertion.source, {
-      kind: 'Connection',
-      label: `${edge.from_node?.canonical_name ?? '?'} → ${edge.to_node?.canonical_name ?? '?'}`,
-      provenance: assertion.provenance,
-      confidence: assertion.confidence_score,
-      reference: assertion.page_reference ?? assertion.table_reference,
+      provenance: null,
+      confidence: null,
+      reference: null,
     });
   }
 
   for (const event of detail.events) {
-    const assertion = event.assertion;
-    if (!assertion) continue;
-    add(assertion.source, {
+    add(event.source, {
       kind: 'Event',
-      label: event.headline,
-      provenance: assertion.provenance,
-      confidence: assertion.confidence_score,
-      reference: assertion.page_reference ?? assertion.table_reference,
+      label: event.title,
+      provenance: null,
+      confidence: null,
+      reference: null,
+    });
+  }
+
+  for (const edge of detail.edges) {
+    add(edge.source, {
+      kind: 'Connection',
+      label: `${edge.from_node?.name ?? '?'} → ${edge.to_node?.name ?? '?'}`,
+      provenance: edge.provenance,
+      confidence: edge.confidence,
+      reference: null,
     });
   }
 

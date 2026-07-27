@@ -1,7 +1,23 @@
 /**
- * Row types mirroring supabase/migrations/0001_initial.sql and the
- * public_nodes view from 0002_security.sql. The migrations are the source of
- * truth; do not add fields here that the schema does not have.
+ * Row types mirroring the LIVE Supabase schema (project yfouuxfgkwycixiiayey),
+ * per the backend hand-off brief. The live database has diverged from the
+ * historical migrations in supabase/migrations/ — the live schema is
+ * authoritative for the frontend:
+ *
+ *  - `assertions` is an entity–attribute–value table (node_id + field_name +
+ *    value_text) linked directly to nodes; there is no node_assertions join
+ *    table and no claim_text column.
+ *  - `observations` carry a free-text `metric_name` (no metrics FK table)
+ *    plus provenance/confidence/source_id directly.
+ *  - `events` use title / event_type / event_date / severity / summary.
+ *  - `nodes` have name, aliases[], owner_entity_id + operator_entity_id,
+ *    notes, created_at/updated_at; no location_precision column (precision
+ *    is an assertion field), no public_nodes view.
+ *  - `edges` and `trade_flows` may not exist yet; queries must tolerate that.
+ *
+ * Only fields the app actually reads are typed; rows are fetched with
+ * select("*") so extra columns are harmless and missing optional ones are
+ * handled as undefined/null.
  */
 
 export type ProvenanceClass = 'reported' | 'modelled' | 'unverified';
@@ -19,7 +35,6 @@ export interface MetalRow {
   metal_id: string;
   name: string;
   symbol: string;
-  description: string | null;
 }
 
 export interface EntityRow {
@@ -29,267 +44,199 @@ export interface EntityRow {
   entity_type: string;
   country_code: string | null;
   website: string | null;
-  active_from: string | null;
-  active_to: string | null;
 }
 
 export interface ProductFormRow {
   product_form_id: string;
   metal_id: string;
   name: string;
-  stage: string;
-  hs_code: string | null;
-  unit_basis: string | null;
+  /** present in the historical migrations; may be absent live */
+  hs_code?: string | null;
 }
 
 export interface NodeRow {
   node_id: string;
   metal_id: string;
-  canonical_name: string;
+  name: string;
+  aliases: string[] | null;
   node_type: string;
   status: NodeStatus;
-  status_effective_date: string | null;
-  country_code: string;
+  country_code: string | null;
   region: string | null;
-  latitude: number;
-  longitude: number;
-  location_precision: string;
+  latitude: number | null;
+  longitude: number | null;
+  owner_entity_id: string | null;
   operator_entity_id: string | null;
-  description: string | null;
-  first_seen_at: string;
-  last_reviewed_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface SourceRow {
   source_id: string;
   title: string;
-  publisher: string;
-  source_type: string;
+  publisher: string | null;
+  source_type: string | null;
   publication_date: string | null;
-  effective_date: string | null;
-  url: string;
+  url: string | null;
   licence: string | null;
-  retrieved_at: string;
 }
 
+/** EAV-style qualitative claim attached directly to a node. */
 export interface AssertionRow {
-  assertion_id: string;
-  source_id: string;
-  claim_text: string;
-  page_reference: string | null;
-  table_reference: string | null;
+  assertion_id?: string;
+  node_id: string;
+  field_name: string;
+  value_text: string | null;
   provenance: ProvenanceClass;
-  extraction_method: string;
-  reviewer: string | null;
-  reviewed_at: string | null;
-  source_quality: number;
-  recency_score: number;
-  directness_score: number;
-  corroboration_score: number;
-  extraction_quality: number;
-  /** generated weighted score, 0–100 */
-  confidence_score: number;
-}
-
-export interface MetricRow {
-  metric_id: string;
-  name: string;
-  definition: string;
-  canonical_unit: string | null;
-  aggregation_rule: string | null;
+  /** numeric; scale varies (0–1 fraction or 0–100) — normalise before display */
+  confidence: number | null;
+  source_id: string | null;
+  source_reference: string | null;
+  effective_date: string | null;
 }
 
 export interface ObservationRow {
-  observation_id: string;
-  node_id: string | null;
-  edge_id: string | null;
-  country_code: string | null;
-  metric_id: string;
+  observation_id?: string;
+  node_id: string;
+  product_form_id: string | null;
+  metric_name: string;
   value_numeric: number | null;
-  value_text: string | null;
   unit: string | null;
-  product_form_id: string | null;
-  period_start: string;
-  period_end: string;
-  estimate_type: ProvenanceClass;
-  assertion_id: string;
-}
-
-export interface EdgeRow {
-  edge_id: string;
-  metal_id: string;
-  from_node_id: string;
-  to_node_id: string;
-  edge_type: string;
-  product_form_id: string | null;
-  relationship_status: ProvenanceClass;
-  effective_from: string | null;
-  effective_to: string | null;
-  confidence_score: number;
-  primary_assertion_id: string;
-}
-
-export interface TradeFlowRow {
-  trade_flow_id: string;
-  exporter_code: string;
-  importer_code: string;
-  product_form_id: string;
-  period_start: string;
-  period_end: string;
-  gross_weight_kg: number | null;
-  trade_value_usd: number | null;
-  reporter_code: string | null;
-  partner_code: string | null;
-  mirror_status: string | null;
-  source_id: string;
+  period_start: string | null;
+  period_end: string | null;
   provenance: ProvenanceClass;
-  confidence_score: number;
+  confidence: number | null;
+  source_id: string | null;
+  source_reference: string | null;
+  notes: string | null;
+}
+
+export interface NodeOwnershipRow {
+  node_ownership_id?: string;
+  node_id: string;
+  entity_id: string;
+  ownership_percentage: number | null;
+  ownership_role: string;
+  effective_from: string | null;
+  source_id: string | null;
 }
 
 export interface EventRow {
   event_id: string;
-  event_type: string;
-  headline: string;
-  description: string | null;
-  announced_at: string | null;
-  effective_from: string | null;
-  effective_to: string | null;
-  country_code: string | null;
-  severity: number | null;
-  source_assertion_id: string;
-}
-
-export interface EventImpactRow {
-  event_id: string;
   node_id: string | null;
-  edge_id: string | null;
-  impact_type: string;
-  impact_direction: string | null;
-  confidence_score: number;
-}
-
-export interface NodeOwnershipRow {
-  node_id: string;
-  entity_id: string;
-  ownership_pct: number | null;
-  effective_from: string | null;
-  effective_to: string | null;
-  source_assertion_id: string;
-}
-
-/** public_nodes view: per-node identity provenance and confidence. */
-export interface PublicNodeRow {
-  node_id: string;
-  canonical_name: string;
-  node_type: string;
-  status: string;
-  country_code: string;
-  latitude: number;
-  longitude: number;
-  provenance_class: ProvenanceClass;
-  confidence_score: number;
-}
-
-/* ------------------------------------------------------------------ */
-/* Joined shapes returned by the query modules                         */
-/* ------------------------------------------------------------------ */
-
-export interface SourceRef {
-  source_id: string;
   title: string;
-  publisher: string;
-  source_type: string;
-  publication_date: string | null;
-  url: string;
-  licence: string | null;
+  event_type: string | null;
+  event_date: string | null;
+  severity: number | null;
+  summary: string | null;
+  source_id: string | null;
 }
 
-export interface AssertionWithSource {
-  assertion_id: string;
-  claim_text: string;
-  page_reference: string | null;
-  table_reference: string | null;
+/** Edge shape per the original design; the live table may not exist yet. */
+export interface EdgeRow {
+  edge_id: string;
+  from_node_id: string;
+  to_node_id: string;
+  edge_type: string;
+  product_form_id: string | null;
   provenance: ProvenanceClass;
-  confidence_score: number;
-  reviewed_at: string | null;
-  source: SourceRef | null;
+  confidence: number | null;
+  source_id: string | null;
+  notes: string | null;
 }
 
-export interface NodeAssertion {
-  field_name: string;
-  is_primary: boolean;
-  assertion: AssertionWithSource | null;
+/** Trade-flow shape per the original design; the live table may not exist yet. */
+export interface TradeFlowRow {
+  trade_flow_id: string;
+  exporter_code: string;
+  importer_code: string;
+  product_form_id: string | null;
+  period_start: string;
+  period_end: string | null;
+  gross_weight_kg: number | null;
+  trade_value_usd: number | null;
+  reporter_code: string | null;
+  mirror_status: string | null;
+  source_id: string | null;
+  provenance: ProvenanceClass;
+  confidence: number | null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Assembled shapes returned by the query modules (in-memory joins)    */
+/* ------------------------------------------------------------------ */
+
+export interface AssertionDetail extends AssertionRow {
+  source: SourceRow | null;
 }
 
 export interface ObservationDetail extends ObservationRow {
-  metric: Pick<MetricRow, 'metric_id' | 'name' | 'definition' | 'canonical_unit'> | null;
-  product_form: Pick<ProductFormRow, 'product_form_id' | 'name' | 'hs_code'> | null;
-  assertion: AssertionWithSource | null;
+  product_form: ProductFormRow | null;
+  source: SourceRow | null;
 }
 
 export interface OwnershipDetail extends NodeOwnershipRow {
-  entity: Pick<EntityRow, 'entity_id' | 'legal_name' | 'entity_type' | 'country_code' | 'website'> | null;
-  assertion: AssertionWithSource | null;
-}
-
-export interface EdgeEndpoint {
-  node_id: string;
-  canonical_name: string;
-  node_type: string;
-  status: NodeStatus;
-  country_code: string;
-  latitude: number;
-  longitude: number;
-}
-
-export interface EdgeDetail extends EdgeRow {
-  from_node: EdgeEndpoint | null;
-  to_node: EdgeEndpoint | null;
-  product_form: Pick<ProductFormRow, 'product_form_id' | 'name'> | null;
-  assertion: AssertionWithSource | null;
+  entity: EntityRow | null;
+  source: SourceRow | null;
 }
 
 export interface EventDetail extends EventRow {
-  assertion: AssertionWithSource | null;
-  impacts: Array<
-    EventImpactRow & {
-      node: Pick<NodeRow, 'node_id' | 'canonical_name' | 'node_type' | 'country_code'> | null;
-    }
-  >;
+  node: Pick<NodeRow, 'node_id' | 'name' | 'node_type' | 'country_code'> | null;
+  source: SourceRow | null;
+}
+
+export interface EdgeDetail extends EdgeRow {
+  from_node: Pick<NodeRow, 'node_id' | 'name' | 'node_type' | 'status' | 'country_code' | 'latitude' | 'longitude'> | null;
+  to_node: Pick<NodeRow, 'node_id' | 'name' | 'node_type' | 'status' | 'country_code' | 'latitude' | 'longitude'> | null;
+  product_form: ProductFormRow | null;
+  source: SourceRow | null;
 }
 
 export interface TradeFlowDetail extends TradeFlowRow {
-  product_form: Pick<ProductFormRow, 'product_form_id' | 'name' | 'hs_code'> | null;
-  source: SourceRef | null;
+  product_form: ProductFormRow | null;
+  source: SourceRow | null;
 }
 
-/** Asset-explorer row: node joined with identity provenance, operator,
- * ownership, its most recent observation and most recent linked event. */
+/** Counts of claims (assertions + observations) by provenance class. */
+export interface EvidenceCounts {
+  reported: number;
+  modelled: number;
+  unverified: number;
+}
+
+/** Asset-explorer row assembled from nodes + entities + claims. */
 export interface AssetListItem {
   node: NodeRow;
+  owner_name: string | null;
   operator_name: string | null;
-  owner_names: string[];
-  identity_provenance: ProvenanceClass | null;
-  identity_confidence: number | null;
-  latest_observation: ObservationDetail | null;
+  /** principal antimony metric chosen by the documented preference rules */
+  principal_observation: ObservationDetail | null;
   observation_count: number;
-  /** coarse kinds present across ALL of the node's observations (coverage flags) */
-  metric_kinds: string[];
-  latest_event: Pick<EventRow, 'event_id' | 'headline' | 'event_type' | 'severity' | 'announced_at'> | null;
+  assertion_count: number;
+  evidence: EvidenceCounts;
+  /** highest normalised (0–100) confidence across the node's claims */
+  max_confidence: number | null;
+  /** location precision from the node's location_precision assertion, if any */
+  location_precision: string | null;
+  latest_event: Pick<EventRow, 'event_id' | 'title' | 'event_type' | 'severity' | 'event_date'> | null;
   source_count: number;
+  /** coarse metric kinds present across all observations (coverage flags) */
+  metric_kinds: string[];
+}
+
+export interface SourceSupportedClaim {
+  kind: 'Assertion' | 'Observation' | 'Ownership' | 'Event';
+  label: string;
+  node_id: string | null;
+  node_name: string | null;
+  provenance: ProvenanceClass | null;
+  confidence: number | null;
+  reference: string | null;
 }
 
 export interface SourceListItem extends SourceRow {
-  assertions: Array<{
-    assertion_id: string;
-    provenance: ProvenanceClass;
-    confidence_score: number;
-    claim_text: string;
-    node_assertions: Array<{
-      field_name: string;
-      node: Pick<NodeRow, 'node_id' | 'canonical_name'> | null;
-    }>;
-  }>;
+  supports: SourceSupportedClaim[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -297,8 +244,12 @@ export interface SourceListItem extends SourceRow {
 /* ------------------------------------------------------------------ */
 
 export type QueryResult<T> =
-  | { ok: true; data: T }
+  | { ok: true; data: T; warnings: string[] }
   | { ok: false; error: string; unconfigured: boolean };
+
+export function queryOk<T>(data: T, warnings: string[] = []): QueryResult<T> {
+  return { ok: true, data, warnings };
+}
 
 export function queryError<T>(error: string, unconfigured = false): QueryResult<T> {
   return { ok: false, error, unconfigured };

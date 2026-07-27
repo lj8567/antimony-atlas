@@ -1,7 +1,7 @@
 /**
  * Pure GeoJSON builders for the atlas map. Kept free of MapLibre and React so
  * they can be unit-tested. All geometry is schematic: node points are as
- * precise as the recorded location_precision, edge lines are straight
+ * precise as the recorded location-precision claim, edge lines are straight
  * connectors (not physical routes) and trade arcs join country centroids.
  */
 
@@ -16,12 +16,14 @@ export interface NodeFeatureProperties {
   node_type: string;
   status: string;
   supply: 'operating' | 'prospective' | 'inactive_or_uncertain';
-  country_code: string;
+  country_code: string | null;
   region: string | null;
-  provenance: string | null;
-  confidence: number | null;
+  reported_claims: number;
+  modelled_claims: number;
+  unverified_claims: number;
+  max_confidence: number | null;
   approximate: boolean;
-  location_precision: string;
+  location_precision: string | null;
 }
 
 type Feature<G, P> = { type: 'Feature'; geometry: G; properties: P };
@@ -41,14 +43,16 @@ export function nodesToGeoJson(nodes: MapNode[]): FeatureCollection<Point, NodeF
       geometry: { type: 'Point', coordinates: [node.longitude, node.latitude] },
       properties: {
         id: node.node_id,
-        name: node.canonical_name,
+        name: node.name,
         node_type: node.node_type,
         status: node.status,
         supply: supplyCategory(node.status),
         country_code: node.country_code,
         region: node.region,
-        provenance: node.identity_provenance,
-        confidence: node.identity_confidence,
+        reported_claims: node.evidence.reported,
+        modelled_claims: node.evidence.modelled,
+        unverified_claims: node.evidence.unverified,
+        max_confidence: node.max_confidence,
         approximate: isApproximateLocation(node.location_precision),
         location_precision: node.location_precision,
       },
@@ -59,8 +63,8 @@ export function nodesToGeoJson(nodes: MapNode[]): FeatureCollection<Point, NodeF
 export interface EdgeFeatureProperties {
   id: string;
   edge_type: string;
-  relationship_status: string;
-  confidence: number;
+  provenance: string;
+  confidence: number | null;
   from_name: string;
   to_name: string;
   product_form: string | null;
@@ -70,23 +74,31 @@ export function edgesToGeoJson(edges: EdgeDetail[]): FeatureCollection<LineStrin
   return {
     type: 'FeatureCollection',
     features: edges
-      .filter((edge) => edge.from_node && edge.to_node)
+      .filter(
+        (edge) =>
+          edge.from_node &&
+          edge.to_node &&
+          edge.from_node.latitude !== null &&
+          edge.from_node.longitude !== null &&
+          edge.to_node.latitude !== null &&
+          edge.to_node.longitude !== null,
+      )
       .map((edge) => ({
         type: 'Feature',
         geometry: {
           type: 'LineString',
           coordinates: [
-            [edge.from_node!.longitude, edge.from_node!.latitude],
-            [edge.to_node!.longitude, edge.to_node!.latitude],
+            [edge.from_node!.longitude!, edge.from_node!.latitude!],
+            [edge.to_node!.longitude!, edge.to_node!.latitude!],
           ],
         },
         properties: {
           id: edge.edge_id,
           edge_type: edge.edge_type,
-          relationship_status: edge.relationship_status,
-          confidence: edge.confidence_score,
-          from_name: edge.from_node!.canonical_name,
-          to_name: edge.to_node!.canonical_name,
+          provenance: edge.provenance,
+          confidence: edge.confidence,
+          from_name: edge.from_node!.name,
+          to_name: edge.to_node!.name,
           product_form: edge.product_form?.name ?? null,
         },
       })),
@@ -96,10 +108,10 @@ export function edgesToGeoJson(edges: EdgeDetail[]): FeatureCollection<LineStrin
 export interface EventFeatureProperties {
   event_id: string;
   node_id: string;
-  headline: string;
-  event_type: string;
+  title: string;
+  event_type: string | null;
   severity: number | null;
-  announced_at: string | null;
+  event_date: string | null;
   node_name: string;
 }
 
@@ -120,11 +132,11 @@ export function eventsToGeoJson(
           properties: {
             event_id: marker.event_id,
             node_id: marker.node_id,
-            headline: marker.headline,
+            title: marker.title,
             event_type: marker.event_type,
             severity: marker.severity,
-            announced_at: marker.announced_at,
-            node_name: node.canonical_name,
+            event_date: marker.event_date,
+            node_name: node.name,
           },
         },
       ];
@@ -161,7 +173,7 @@ export function tradeArcsToGeoJson(flows: MapTradeFlow[]): {
     entry.count += 1;
     if (flow.gross_weight_kg !== null) entry.weight = (entry.weight ?? 0) + flow.gross_weight_kg;
     if (flow.trade_value_usd !== null) entry.value = (entry.value ?? 0) + flow.trade_value_usd;
-    if (flow.product_form?.name) entry.forms.add(flow.product_form.name);
+    if (flow.product_form_name) entry.forms.add(flow.product_form_name);
     pairs.set(key, entry);
   }
 
@@ -225,21 +237,18 @@ export function arcCoordinates(
 
 export const NODE_TYPE_COLORS: Record<string, string> = {
   mine: '#6da8dc',
+  mine_and_concentrator: '#6da8dc',
   development_project: '#8f83cd',
   concentrator: '#d6a54e',
   smelter: '#cf8340',
+  refinery: '#c0913d',
+  processing_plant: '#b98a3b',
   metal_plant: '#b98a3b',
   trioxide_plant: '#dcb765',
   port: '#55b0a5',
+  rail_terminal: '#4f9e8f',
   border_gateway: '#5da06b',
+  logistics_gateway: '#5da06b',
 };
 
 export const NODE_DEFAULT_COLOR = '#8a97a3';
-
-export const SEVERITY_COLORS: Record<number, string> = {
-  1: '#7d8a96',
-  2: '#b8a355',
-  3: '#cf9440',
-  4: '#cd7052',
-  5: '#d05b5b',
-};

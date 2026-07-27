@@ -22,10 +22,10 @@ describe('SourceLink', () => {
 });
 
 describe('MetricValue', () => {
-  it('keeps unit, metric name, period and estimate qualifier together', () => {
+  it('keeps unit, metric name, period and provenance qualifier together', () => {
     render(<MetricValue observation={stibniteObservation} />);
-    expect(screen.getByText('12,300 t contained Sb')).toBeInTheDocument();
-    expect(screen.getByText(/Projected recovered antimony/)).toBeInTheDocument();
+    expect(screen.getByText('12,300 tonnes Sb contained')).toBeInTheDocument();
+    expect(screen.getByText(/Antimony production/)).toBeInTheDocument();
     expect(screen.getByText(/2028/)).toBeInTheDocument();
     expect(screen.getByText('Modelled')).toBeInTheDocument();
   });

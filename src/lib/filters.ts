@@ -131,20 +131,23 @@ export function filterAssets(items: AssetListItem[], filters: AssetFilters): Ass
     if (filters.region && (node.region ?? '') !== filters.region) return false;
     if (filters.type && node.node_type !== filters.type) return false;
     if (filters.status && node.status !== filters.status) return false;
-    if (filters.provenance && item.identity_provenance !== filters.provenance) return false;
-    if (filters.confidence && confidenceBand(item.identity_confidence) !== filters.confidence) return false;
+    // provenance filter: the node carries at least one claim of that class
+    if (filters.provenance && item.evidence[filters.provenance as keyof typeof item.evidence] === 0) return false;
+    // confidence filter: banded on the highest claim confidence on file
+    if (filters.confidence && confidenceBand(item.max_confidence) !== filters.confidence) return false;
     if (!matchesSupply(node.status, filters.supply)) return false;
     if (filters.productForm) {
-      if (item.latest_observation?.product_form?.product_form_id !== filters.productForm) return false;
+      if (item.principal_observation?.product_form?.product_form_id !== filters.productForm) return false;
     }
     if (query) {
       const haystack = [
-        node.canonical_name,
+        node.name,
+        ...(node.aliases ?? []),
         node.region ?? '',
-        node.country_code,
+        node.country_code ?? '',
         countryName(node.country_code),
         item.operator_name ?? '',
-        ...item.owner_names,
+        item.owner_name ?? '',
       ]
         .join(' ')
         .toLowerCase();
@@ -159,7 +162,7 @@ export function sortAssets(items: AssetListItem[], sort: AssetSortKey, dir: Sort
   const value = (item: AssetListItem): string | number | null => {
     switch (sort) {
       case 'name':
-        return item.node.canonical_name;
+        return item.node.name;
       case 'country':
         return countryName(item.node.country_code);
       case 'type':
@@ -167,9 +170,9 @@ export function sortAssets(items: AssetListItem[], sort: AssetSortKey, dir: Sort
       case 'status':
         return item.node.status;
       case 'confidence':
-        return item.identity_confidence;
+        return item.max_confidence;
       case 'reviewed':
-        return item.node.last_reviewed_at;
+        return item.node.updated_at;
     }
   };
   return [...items].sort((a, b) => {
@@ -323,22 +326,14 @@ export function filterEvents(events: EventDetail[], filters: EventFilters): Even
   const minSeverity = Number(filters.minSeverity);
   return events.filter((event) => {
     if (filters.type && event.event_type !== filters.type) return false;
-    if (filters.country) {
-      const impactCountries = event.impacts.map((impact) => impact.node?.country_code).filter(Boolean);
-      if (event.country_code !== filters.country && !impactCountries.includes(filters.country)) return false;
-    }
+    // events carry no country of their own in the live schema — match via the linked node
+    if (filters.country && event.node?.country_code !== filters.country) return false;
     if (filters.minSeverity) {
       if (event.severity === null || event.severity < minSeverity) return false;
     }
-    if (filters.year && !(event.announced_at ?? '').startsWith(filters.year)) return false;
+    if (filters.year && !(event.event_date ?? '').startsWith(filters.year)) return false;
     if (query) {
-      const haystack = [
-        event.headline,
-        event.description ?? '',
-        ...event.impacts.map((impact) => impact.node?.canonical_name ?? ''),
-      ]
-        .join(' ')
-        .toLowerCase();
+      const haystack = [event.title, event.summary ?? '', event.node?.name ?? ''].join(' ').toLowerCase();
       if (!haystack.includes(query)) return false;
     }
     return true;

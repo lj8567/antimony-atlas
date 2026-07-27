@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Panel } from '@/components/ui/Panel';
-import { EmptyState, QueryFailure } from '@/components/ui/states';
+import { EmptyState, QueryFailure, WarningsNotice } from '@/components/ui/states';
 import { countryName } from '@/lib/countries';
 import { GATEWAY_NODE_TYPES, PROCESSING_NODE_TYPES, supplyCategory } from '@/lib/format';
 import { fetchCountrySummaryData } from '@/lib/supabase/queries/countries';
@@ -36,7 +36,7 @@ export default async function CountriesPage() {
     );
   }
 
-  const { nodes, events, tradeCountries } = result.data;
+  const { assets, events, tradeCountries, unallocatedNodes } = result.data;
   const rows = new Map<string, CountryRow>();
   const ensure = (code: string): CountryRow => {
     const existing = rows.get(code);
@@ -55,17 +55,18 @@ export default async function CountriesPage() {
     return created;
   };
 
-  for (const node of nodes) {
-    const row = ensure(node.country_code);
-    if (PROCESSING_NODE_TYPES.has(node.node_type)) row.processing += 1;
-    else if (GATEWAY_NODE_TYPES.has(node.node_type)) row.gateways += 1;
+  for (const item of assets) {
+    if (!item.node.country_code) continue;
+    const row = ensure(item.node.country_code);
+    if (PROCESSING_NODE_TYPES.has(item.node.node_type)) row.processing += 1;
+    else if (GATEWAY_NODE_TYPES.has(item.node.node_type)) row.gateways += 1;
     else row.upstream += 1;
-    const category = supplyCategory(node.status);
+    const category = supplyCategory(item.node.status);
     if (category === 'operating') row.operating += 1;
     if (category === 'prospective') row.prospective += 1;
   }
   for (const event of events) {
-    if (event.country_code) ensure(event.country_code).events += 1;
+    if (event.node?.country_code) ensure(event.node.country_code).events += 1;
   }
   for (const flow of tradeCountries) {
     for (const code of [flow.exporter_code, flow.importer_code]) {
@@ -82,6 +83,7 @@ export default async function CountriesPage() {
   return (
     <div className="page">
       <Header />
+      <WarningsNotice warnings={result.warnings} />
       <Panel flush>
         {sorted.length === 0 ? (
           <EmptyState
@@ -129,6 +131,8 @@ export default async function CountriesPage() {
       <p className="note">
         Operating and prospective counts refer to node status categories, not output. Production and capacity always
         carry units, periods and provenance on the asset pages.
+        {unallocatedNodes > 0 &&
+          ` ${unallocatedNodes} node${unallocatedNodes === 1 ? ' has' : 's have'} no country code recorded and are not shown here.`}
       </p>
     </div>
   );

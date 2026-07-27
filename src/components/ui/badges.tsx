@@ -7,7 +7,7 @@ import {
   PROVENANCE_DESCRIPTION,
   PROVENANCE_LABEL,
 } from '@/lib/format';
-import type { NodeStatus, ProvenanceClass } from '@/lib/supabase/types';
+import type { EvidenceCounts, NodeStatus, ProvenanceClass } from '@/lib/supabase/types';
 import { Hint } from './Hint';
 
 /**
@@ -69,6 +69,36 @@ export function StatusLabel({ status }: { status: NodeStatus | string | null | u
       <span className="dot" aria-hidden />
       {formatStatus(value)}
     </span>
+  );
+}
+
+/**
+ * Compact per-record evidence mix: how many claims (assertions +
+ * observations) of each provenance class are on file. Pure counts — no
+ * judgement is applied and classes are never merged.
+ */
+export function EvidenceSummary({ counts, sourceCount }: { counts: EvidenceCounts; sourceCount?: number }) {
+  const total = counts.reported + counts.modelled + counts.unverified;
+  if (total === 0) {
+    return <span className="note">No claims yet</span>;
+  }
+  const parts = (['reported', 'modelled', 'unverified'] as const).filter((prov) => counts[prov] > 0);
+  return (
+    <Hint
+      text={`${total} claim${total === 1 ? '' : 's'} on file: ${parts
+        .map((prov) => `${counts[prov]} ${PROVENANCE_LABEL[prov].toLowerCase()}`)
+        .join(', ')}${sourceCount !== undefined ? `. ${sourceCount} distinct source${sourceCount === 1 ? '' : 's'}.` : ''}`}
+    >
+      <span className="inline-list" style={{ gap: 4 }}>
+        {parts.map((prov) => (
+          <span key={prov} className={`badge badge-${prov}`}>
+            <span className="dot" aria-hidden />
+            {counts[prov]}
+            <span className="visually-hidden"> {PROVENANCE_LABEL[prov]} claims</span>
+          </span>
+        ))}
+      </span>
+    </Hint>
   );
 }
 

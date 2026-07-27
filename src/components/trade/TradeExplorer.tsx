@@ -25,6 +25,7 @@ import {
   formatPeriod,
   formatUsd,
   impliedUnitValueUsdPerTonne,
+  normalizeConfidence,
   PROVENANCE_LABEL,
 } from '@/lib/format';
 import type { ProductFormRow, TradeFlowDetail } from '@/lib/supabase/types';
@@ -52,7 +53,7 @@ const CSV_COLUMNS: CsvColumn<TradeFlowDetail>[] = [
     },
   },
   { label: 'Provenance', value: (flow) => PROVENANCE_LABEL[flow.provenance] },
-  { label: 'Confidence (0-100)', value: (flow) => flow.confidence_score },
+  { label: 'Confidence (0-100)', value: (flow) => normalizeConfidence(flow.confidence) },
   { label: 'Source', value: (flow) => flow.source?.title ?? '' },
   { label: 'Source URL', value: (flow) => flow.source?.url ?? '' },
 ];
@@ -60,11 +61,9 @@ const CSV_COLUMNS: CsvColumn<TradeFlowDetail>[] = [
 export function TradeExplorer({
   flows,
   productForms,
-  truncated,
 }: {
   flows: TradeFlowDetail[];
   productForms: ProductFormRow[];
-  truncated: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -259,11 +258,11 @@ export function TradeExplorer({
                         <ProvenanceBadge provenance={flow.provenance} />
                       </td>
                       <td>
-                        <ConfidenceIndicator score={flow.confidence_score} />
+                        <ConfidenceIndicator score={normalizeConfidence(flow.confidence)} />
                       </td>
                       <td>
                         {flow.source ? (
-                          <SourceLink url={flow.source.url} title={flow.source.publisher} />
+                          <SourceLink url={flow.source.url} title={flow.source.publisher ?? flow.source.title} />
                         ) : (
                           <span className="note">Missing source</span>
                         )}
@@ -278,7 +277,7 @@ export function TradeExplorer({
 
         <div className="table-foot">
           <span>
-            {filtered.length} of {flows.length} flows{truncated ? ' (oldest periods truncated at 2,000 rows)' : ''}
+            {filtered.length} of {flows.length} flows
           </span>
           {pageCount > 1 && (
             <span className="inline-list">

@@ -43,6 +43,23 @@ export function isFailure<T>(result: QueryResult<T>): result is { ok: false; err
   return !result.ok;
 }
 
+/**
+ * Partial-load disclosure: the page rendered, but one or more optional
+ * tables could not be read (missing grant, RLS, etc.). Surfacing this keeps
+ * permission problems debuggable instead of silently blanking sections.
+ */
+export function WarningsNotice({ warnings }: { warnings: string[] }) {
+  if (warnings.length === 0) return null;
+  return (
+    <div className="warn-strip" role="status">
+      <span aria-hidden>⚠</span>
+      <span>
+        Some data could not be loaded: {warnings.join(' · ')} — check the <a href="/status">data status page</a>.
+      </span>
+    </div>
+  );
+}
+
 export function TableSkeleton({ rows = 6 }: { rows?: number }) {
   return (
     <div className="panel-body" aria-hidden>

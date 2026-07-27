@@ -3,6 +3,47 @@
 Date: July 2026. Scope: complete rebuild of the UI/frontend (Phase 7.2 and Phase 8) on top of the existing
 Supabase schema. No database changes were made.
 
+## 0. Live-schema realignment (post-merge fix)
+
+After the initial rebuild merged, the deployed site read no data. Root cause: **the live Supabase project
+(yfouuxfgkwycixiiayey) does not use the schema in `supabase/migrations/`** — the database was evolved
+separately with its own migrations. Per the backend hand-off brief, the live schema differs structurally:
+
+| Area | Repo migrations (historical) | Live schema (authoritative) |
+| --- | --- | --- |
+| assertions | `claim_text` + `node_assertions` join table, generated 0–100 confidence | EAV rows: `node_id`, `field_name`, `value_text`, numeric `confidence`, direct `source_id` |
+| observations | `metric_id` FK to a `metrics` table, `estimate_type` | free-text `metric_name`, `provenance`/`confidence`/`source_id` inline; no `value_text` |
+| nodes | `canonical_name`, `location_precision`, `last_reviewed_at` | `name`, `aliases[]`, `owner_entity_id`, `notes`, `created_at`/`updated_at`; precision is an assertion |
+| events | `headline`, `announced_at`, `event_impacts` join | `title`, `event_date`, `summary`, direct `node_id` |
+| node_ownership | `ownership_pct`, `source_assertion_id` | `ownership_percentage`, `ownership_role`, `source_id` |
+| views/tables | `public_nodes` view, `trade_flows`, `edges` | no view; `trade_flows`/`edges` may not exist yet |
+
+The entire data layer was rewritten against the live schema:
+
+- **Staged queries, no PostgREST embeds.** `nodes` has two FKs to `entities`, which makes bare embeds
+  ambiguous (PGRST201). All base tables are fetched with plain `select("*")` in one parallel pass
+  (`queries/core.ts`, deduplicated per request with React `cache`) and joined in memory (`queries/assemble.ts`).
+- **Fault tolerance with disclosure.** A missing table (edges, trade_flows → PGRST205) degrades to an empty
+  section; any other per-table failure (missing grant, RLS) surfaces as a visible warning strip — errors are
+  never swallowed and no mock data ever substitutes.
+- **`/status` diagnostic page** probes every table with the anon role and shows row counts or the exact
+  PostgREST error, separating wrong-credential, missing-grant, RLS-empty and missing-table failures in one
+  view. (Found and worked around a postgrest-js quirk in the process: a HEAD probe of a missing table is
+  silently converted to a 204, so probes use GET.)
+- **Confidence normalisation.** Live confidence is a plain numeric with mixed scales; values ≤ 1 are read as
+  fractions and everything is displayed on a 0–100 scale. Asset lists show the *highest* claim confidence,
+  labelled as such — per-claim scores live on the asset page.
+- **Evidence summaries replace “identity” provenance.** With no `public_nodes` view, list rows show pure
+  counts of reported/modelled/unverified claims plus distinct sources — no judgement is applied.
+- **Principal-metric preference** (list views only): actual antimony production in contained-tonnes units →
+  actual production in any unit → capacity metrics → most recent observation; labels always carry the metric
+  name and unit, and the reported-pounds/modelled-tonnes twins are never summed.
+- **Statuses and country codes** use the live enum values (`operating`…`unknown`) and ISO alpha-3 verbatim.
+- Verified end-to-end against a local PostgREST-shaped fixture server reproducing the live schema (six seeded
+  assets incl. Stibnite, Hillgrove, Costerfield, Thompson Falls, Madero, SPMP, and absent edges/trade_flows).
+
+The sections below describe the original rebuild and remain accurate except where superseded by the above.
+
 ## 1. Audit findings (pre-rebuild)
 
 - The starter app was a single light-themed page with a MapLibre demo. It fell back to

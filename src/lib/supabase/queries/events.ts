@@ -1,17 +1,10 @@
-import { withServerClient } from '../server';
-import { queryError, type EventDetail, type QueryResult } from '../types';
-import { EVENT_DETAIL_SELECT } from './fragments';
+import { queryOk, type EventDetail, type QueryResult } from '../types';
+import { buildIndex, eventDetails } from './assemble';
+import { fetchAtlasData } from './core';
 
-/** All events with source assertion and impacted nodes, newest first. */
+/** All events with node and source context, newest first. */
 export async function fetchEvents(): Promise<QueryResult<EventDetail[]>> {
-  return withServerClient(async (client) => {
-    const { data, error } = await client
-      .from('events')
-      .select(EVENT_DETAIL_SELECT)
-      .order('announced_at', { ascending: false, nullsFirst: false })
-      .limit(1000)
-      .returns<EventDetail[]>();
-    if (error) return queryError(`Event query failed: ${error.message}`);
-    return { ok: true, data: data ?? [] };
-  });
+  const result = await fetchAtlasData();
+  if (!result.ok) return result;
+  return queryOk(eventDetails(result.data, buildIndex(result.data)), result.warnings);
 }

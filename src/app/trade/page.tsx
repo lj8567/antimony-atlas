@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { TradeExplorer } from '@/components/trade/TradeExplorer';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { QueryFailure, TableSkeleton } from '@/components/ui/states';
+import { EmptyState, QueryFailure, TableSkeleton, WarningsNotice } from '@/components/ui/states';
 import { fetchTradeData } from '@/lib/supabase/queries/trade';
 
 export const dynamic = 'force-dynamic';
@@ -28,12 +28,25 @@ export default async function TradePage() {
           mines, buyers or facilities. Mirror discrepancies between reporters are shown, not reconciled.
         </span>
       </div>
-      {result.ok ? (
-        <Suspense fallback={<div className="panel"><TableSkeleton rows={10} /></div>}>
-          <TradeExplorer flows={result.data.flows} productForms={result.data.productForms} truncated={result.data.truncated} />
-        </Suspense>
-      ) : (
+      {!result.ok ? (
         <QueryFailure result={result} />
+      ) : !result.data.tableExists ? (
+        <>
+          <WarningsNotice warnings={result.warnings} />
+          <section className="panel">
+            <EmptyState
+              title="Trade data is not yet part of the live database"
+              detail="The trade_flows table has not been created in this Supabase project yet. This page activates automatically once trade data is migrated — no frontend change required."
+            />
+          </section>
+        </>
+      ) : (
+        <>
+          <WarningsNotice warnings={result.warnings} />
+          <Suspense fallback={<div className="panel"><TableSkeleton rows={10} /></div>}>
+            <TradeExplorer flows={result.data.flows} productForms={result.data.productForms} />
+          </Suspense>
+        </>
       )}
     </div>
   );

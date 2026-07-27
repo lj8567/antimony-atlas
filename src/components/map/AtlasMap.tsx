@@ -9,7 +9,7 @@ import maplibregl, {
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ConfidenceIndicator, ProvenanceBadge, StatusLabel } from '@/components/ui/badges';
+import { ConfidenceIndicator, EvidenceSummary, StatusLabel } from '@/components/ui/badges';
 import { SelectField } from '@/components/ui/controls';
 import { countryName } from '@/lib/countries';
 import { toQueryString } from '@/lib/filters';
@@ -20,7 +20,6 @@ import {
   formatLocationPrecision,
   formatNodeType,
   formatStatus,
-  isProvenanceClass,
   STATUS_ORDER,
   type ConfidenceBand,
 } from '@/lib/format';
@@ -182,8 +181,8 @@ export function AtlasMap({ data }: { data: MapData }) {
       if (filters.type && node.node_type !== filters.type) return false;
       if (filters.status && node.status !== filters.status) return false;
       if (filters.country && node.country_code !== filters.country) return false;
-      if (filters.provenance && node.identity_provenance !== filters.provenance) return false;
-      if (filters.confidence && confidenceBand(node.identity_confidence) !== filters.confidence) return false;
+      if (filters.provenance && node.evidence[filters.provenance as keyof typeof node.evidence] === 0) return false;
+      if (filters.confidence && confidenceBand(node.max_confidence) !== filters.confidence) return false;
       return true;
     });
   }, [data.nodes, filters]);
@@ -265,7 +264,7 @@ export function AtlasMap({ data }: { data: MapData }) {
           id,
           type: 'line',
           source: 'edges',
-          filter: ['==', ['get', 'relationship_status'], status],
+          filter: ['==', ['get', 'provenance'], status],
           layout: { 'line-cap': 'round' },
           paint: {
             'line-color': status === 'reported' ? '#6ea6d9' : status === 'modelled' ? '#d19d47' : '#c9748c',
@@ -401,9 +400,9 @@ export function AtlasMap({ data }: { data: MapData }) {
       openPopup(
         map,
         feature.geometry.coordinates as [number, number],
-        `<strong>${escapeHtml(String(props.headline ?? ''))}</strong><br/>${escapeHtml(
+        `<strong>${escapeHtml(String(props.title ?? ''))}</strong><br/>${escapeHtml(
           formatEventType(String(props.event_type ?? '')),
-        )} · ${escapeHtml(formatDate(props.announced_at ? String(props.announced_at) : null))}<br/><small>Severity ${escapeHtml(
+        )} · ${escapeHtml(formatDate(props.event_date ? String(props.event_date) : null))}<br/><small>Severity ${escapeHtml(
           String(props.severity ?? '—'),
         )}/5 · ${escapeHtml(String(props.node_name ?? ''))}</small>`,
       );
@@ -419,7 +418,7 @@ export function AtlasMap({ data }: { data: MapData }) {
         `<strong>${escapeHtml(String(props.from_name ?? ''))} → ${escapeHtml(String(props.to_name ?? ''))}</strong><br/>${escapeHtml(
           formatNodeType(String(props.edge_type ?? '')),
         )}${props.product_form ? ` · ${escapeHtml(String(props.product_form))}` : ''}<br/><small>${escapeHtml(
-          String(props.relationship_status ?? ''),
+          String(props.provenance ?? ''),
         )} relationship · confidence ${escapeHtml(String(props.confidence ?? '—'))}/100<br/>Schematic line — not the physical route</small>`,
       );
     };
@@ -502,7 +501,7 @@ export function AtlasMap({ data }: { data: MapData }) {
     const statuses = STATUS_ORDER.filter((status) => data.nodes.some((node) => node.status === status)).map(
       (status) => ({ value: status, label: formatStatus(status) }),
     );
-    const countries = [...new Set(data.nodes.map((node) => node.country_code))]
+    const countries = [...new Set(data.nodes.map((node) => node.country_code).filter((c): c is string => Boolean(c)))]
       .sort((a, b) => countryName(a).localeCompare(countryName(b)))
       .map((code) => ({ value: code, label: countryName(code) }));
     return { types, statuses, countries };
@@ -606,6 +605,12 @@ export function AtlasMap({ data }: { data: MapData }) {
               {tradeArcs.skipped > 0 && <span className="note"> ({tradeArcs.skipped} pair(s) without centroid omitted)</span>}
             </div>
           )}
+          {data.nodesWithoutCoordinates > 0 && (
+            <p className="note" style={{ marginTop: 8, marginBottom: 0 }}>
+              {data.nodesWithoutCoordinates} node{data.nodesWithoutCoordinates === 1 ? '' : 's'} without coordinates not
+              shown — see the <Link href="/assets">asset register</Link>.
+            </p>
+          )}
           {basemapError && (
             <p className="note" style={{ marginTop: 8, marginBottom: 0 }}>
               Basemap tiles unavailable — data layers remain accurate.
@@ -616,7 +621,7 @@ export function AtlasMap({ data }: { data: MapData }) {
         {selectedNode && (
           <aside className="map-panel">
             <div className="panel-head">
-              <h2 className="panel-title">{selectedNode.canonical_name}</h2>
+              <h2 className="panel-title">{selectedNode.name}</h2>
               <button type="button" className="close-button" aria-label="Close node panel" onClick={() => apply({}, null)}>
                 ✕
               </button>
@@ -643,14 +648,11 @@ export function AtlasMap({ data }: { data: MapData }) {
                 </dd>
                 <dt>Precision</dt>
                 <dd>{formatLocationPrecision(selectedNode.location_precision)}</dd>
-                <dt>Identity evidence</dt>
+                <dt>Evidence on file</dt>
                 <dd>
                   <span className="inline-list">
-                    <ProvenanceBadge
-                      provenance={isProvenanceClass(selectedNode.identity_provenance) ? selectedNode.identity_provenance : null}
-                      withHint={false}
-                    />
-                    <ConfidenceIndicator score={selectedNode.identity_confidence} withHint={false} />
+                    <EvidenceSummary counts={selectedNode.evidence} />
+                    <ConfidenceIndicator score={selectedNode.max_confidence} withHint={false} />
                   </span>
                 </dd>
               </dl>

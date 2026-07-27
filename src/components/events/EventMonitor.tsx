@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { ConfidenceIndicator, ProvenanceBadge, SeverityIndicator } from '@/components/ui/badges';
+import { SeverityIndicator } from '@/components/ui/badges';
 import { SearchField, SelectField } from '@/components/ui/controls';
 import { ExportCsvButton } from '@/components/ui/ExportCsvButton';
 import { SourceLink } from '@/components/ui/SourceLink';
@@ -17,28 +17,21 @@ import {
   toQueryString,
   type EventFilters,
 } from '@/lib/filters';
-import { formatDate, formatEventType, formatSeverity, PROVENANCE_LABEL } from '@/lib/format';
+import { formatDate, formatEventType, formatSeverity } from '@/lib/format';
 import type { EventDetail } from '@/lib/supabase/types';
 
 const CSV_COLUMNS: CsvColumn<EventDetail>[] = [
-  { label: 'Date', value: (event) => formatDate(event.announced_at, '') },
-  { label: 'Headline', value: (event) => event.headline },
+  { label: 'Date', value: (event) => formatDate(event.event_date, '') },
+  { label: 'Title', value: (event) => event.title },
   { label: 'Event type', value: (event) => formatEventType(event.event_type) },
   { label: 'Severity (1-5)', value: (event) => event.severity },
   { label: 'Severity label', value: (event) => formatSeverity(event.severity) },
-  { label: 'Country code', value: (event) => event.country_code },
-  { label: 'Country', value: (event) => (event.country_code ? countryName(event.country_code) : '') },
-  {
-    label: 'Affected nodes',
-    value: (event) => event.impacts.map((impact) => impact.node?.canonical_name).filter(Boolean).join('; '),
-  },
-  { label: 'Description', value: (event) => event.description },
-  { label: 'Effective from', value: (event) => event.effective_from },
-  { label: 'Effective to', value: (event) => event.effective_to },
-  { label: 'Provenance', value: (event) => (event.assertion ? PROVENANCE_LABEL[event.assertion.provenance] : '') },
-  { label: 'Confidence (0-100)', value: (event) => event.assertion?.confidence_score },
-  { label: 'Source', value: (event) => event.assertion?.source?.title ?? '' },
-  { label: 'Source URL', value: (event) => event.assertion?.source?.url ?? '' },
+  { label: 'Affected asset', value: (event) => event.node?.name ?? '' },
+  { label: 'Country code', value: (event) => event.node?.country_code ?? '' },
+  { label: 'Country', value: (event) => (event.node?.country_code ? countryName(event.node.country_code) : '') },
+  { label: 'Summary', value: (event) => event.summary },
+  { label: 'Source', value: (event) => event.source?.title ?? '' },
+  { label: 'Source URL', value: (event) => event.source?.url ?? '' },
 ];
 
 export function EventMonitor({ events }: { events: EventDetail[] }) {
@@ -55,21 +48,15 @@ export function EventMonitor({ events }: { events: EventDetail[] }) {
   };
 
   const options = useMemo(() => {
-    const types = [...new Set(events.map((event) => event.event_type))].sort().map((type) => ({
-      value: type,
-      label: formatEventType(type),
-    }));
+    const types = [...new Set(events.map((event) => event.event_type).filter((t): t is string => Boolean(t)))]
+      .sort()
+      .map((type) => ({ value: type, label: formatEventType(type) }));
     const countries = [
-      ...new Set(
-        events.flatMap((event) => [
-          ...(event.country_code ? [event.country_code] : []),
-          ...event.impacts.map((impact) => impact.node?.country_code).filter((c): c is string => Boolean(c)),
-        ]),
-      ),
+      ...new Set(events.map((event) => event.node?.country_code).filter((c): c is string => Boolean(c))),
     ]
       .sort((a, b) => countryName(a).localeCompare(countryName(b)))
       .map((code) => ({ value: code, label: countryName(code) }));
-    const years = [...new Set(events.map((event) => (event.announced_at ?? '').slice(0, 4)).filter(Boolean))]
+    const years = [...new Set(events.map((event) => (event.event_date ?? '').slice(0, 4)).filter(Boolean))]
       .sort()
       .reverse()
       .map((year) => ({ value: year, label: year }));
@@ -82,7 +69,7 @@ export function EventMonitor({ events }: { events: EventDetail[] }) {
   return (
     <section className="panel">
       <div className="filter-bar">
-        <SearchField value={filters.q} placeholder="Headline, description, asset…" onChange={(q) => apply({ q })} />
+        <SearchField value={filters.q} placeholder="Title, summary, asset…" onChange={(q) => apply({ q })} />
         <SelectField label="Type" value={filters.type} options={options.types} onChange={(type) => apply({ type })} />
         <SelectField label="Country" value={filters.country} options={options.countries} onChange={(country) => apply({ country })} />
         <SelectField
@@ -117,7 +104,7 @@ export function EventMonitor({ events }: { events: EventDetail[] }) {
           title={events.length === 0 ? 'No events recorded yet' : 'No events match the current filters'}
           detail={
             events.length === 0
-              ? 'Export controls, suspensions, permits, accidents and other material events appear here once researched.'
+              ? 'Ownership changes, commissioning milestones, suspensions and other material events appear here once researched.'
               : 'Relax or clear filters to see more events.'
           }
         />
@@ -130,7 +117,7 @@ export function EventMonitor({ events }: { events: EventDetail[] }) {
                 <th>Event</th>
                 <th>Type</th>
                 <th>Severity</th>
-                <th>Affected</th>
+                <th>Affected asset</th>
                 <th>Source</th>
                 <th>
                   <span className="visually-hidden">Expand</span>
@@ -166,37 +153,27 @@ function EventRows({ event, isOpen, onToggle }: { event: EventDetail; isOpen: bo
   return (
     <>
       <tr>
-        <td style={{ whiteSpace: 'nowrap' }}>{formatDate(event.announced_at)}</td>
+        <td style={{ whiteSpace: 'nowrap' }}>{formatDate(event.event_date)}</td>
         <td className="primary-cell" style={{ maxWidth: 380, whiteSpace: 'normal' }}>
-          {event.headline}
-          {event.country_code && <span className="cell-sub">{countryName(event.country_code)}</span>}
+          {event.title}
         </td>
         <td>{formatEventType(event.event_type)}</td>
         <td>
           <SeverityIndicator severity={event.severity} />
         </td>
         <td>
-          {event.impacts.length === 0 ? (
-            <span className="note">None linked</span>
+          {event.node ? (
+            <>
+              <Link href={`/assets/${event.node.node_id}`}>{event.node.name}</Link>
+              <span className="cell-sub">{countryName(event.node.country_code)}</span>
+            </>
           ) : (
-            <span className="inline-list">
-              {event.impacts.map((impact, index) =>
-                impact.node ? (
-                  <Link key={index} href={`/assets/${impact.node.node_id}`}>
-                    {impact.node.canonical_name}
-                  </Link>
-                ) : (
-                  <span key={index} className="note">
-                    Route/edge
-                  </span>
-                ),
-              )}
-            </span>
+            <span className="note">None linked</span>
           )}
         </td>
         <td>
-          {event.assertion?.source ? (
-            <SourceLink url={event.assertion.source.url} title={event.assertion.source.publisher} />
+          {event.source ? (
+            <SourceLink url={event.source.url} title={event.source.publisher ?? event.source.title} />
           ) : (
             <span className="note">Missing source</span>
           )}
@@ -211,42 +188,16 @@ function EventRows({ event, isOpen, onToggle }: { event: EventDetail; isOpen: bo
         <tr>
           <td colSpan={7} style={{ background: 'var(--surface-2)' }}>
             <div style={{ maxWidth: 760, whiteSpace: 'normal' }}>
-              {event.description ? (
-                <p style={{ margin: '4px 0 8px', fontSize: 12.5, color: 'var(--ink-2)' }}>{event.description}</p>
+              {event.summary ? (
+                <p style={{ margin: '4px 0 8px', fontSize: 12.5, color: 'var(--ink-2)' }}>{event.summary}</p>
               ) : (
                 <p className="note" style={{ margin: '4px 0 8px' }}>
-                  No further description recorded.
+                  No further summary recorded.
                 </p>
               )}
-              <div className="inline-list" style={{ marginBottom: 6 }}>
-                {event.assertion && <ProvenanceBadge provenance={event.assertion.provenance} />}
-                {event.assertion && <ConfidenceIndicator score={event.assertion.confidence_score} />}
-                {event.effective_from && (
-                  <span className="note">
-                    Effective {formatDate(event.effective_from)}
-                    {event.effective_to ? ` – ${formatDate(event.effective_to)}` : ''}
-                  </span>
-                )}
-              </div>
-              {event.impacts.length > 0 && (
+              {event.source && (
                 <p className="note" style={{ margin: 0 }}>
-                  Impacts:{' '}
-                  {event.impacts
-                    .map((impact) =>
-                      [
-                        impact.node?.canonical_name ?? 'edge',
-                        impact.impact_type,
-                        impact.impact_direction ?? undefined,
-                      ]
-                        .filter(Boolean)
-                        .join(' · '),
-                    )
-                    .join('; ')}
-                </p>
-              )}
-              {event.assertion?.claim_text && (
-                <p className="note" style={{ margin: '6px 0 0' }}>
-                  Source claim: “{event.assertion.claim_text}”
+                  Source: <SourceLink url={event.source.url} title={event.source.title} />
                 </p>
               )}
             </div>

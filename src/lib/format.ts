@@ -42,10 +42,19 @@ export function isProvenanceClass(value: unknown): value is ProvenanceClass {
 /* ------------------------------------------------------------------ */
 
 /**
- * The schema stores confidence as an integer 0–100 (weighted source-quality
- * score, see supabase/migrations/0001_initial.sql). Bands adapt the product
- * brief's 0–1 thresholds to that scale.
+ * The live schema stores confidence as a plain numeric whose scale is not
+ * enforced — fractions (0–1) and percentage-style scores (0–100) both occur.
+ * Everything is normalised to 0–100 before banding or display: values ≤ 1
+ * are treated as fractions. (A stored value of exactly 1 is read as 100%;
+ * a 1-in-100 confidence is not a value this dataset uses.)
  */
+export function normalizeConfidence(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || Number.isNaN(value)) return null;
+  if (value < 0) return 0;
+  if (value <= 1) return Math.round(value * 100);
+  return Math.round(Math.min(value, 100));
+}
+
 export type ConfidenceBand = 'high' | 'medium' | 'low';
 
 export function confidenceBand(score: number | null | undefined): ConfidenceBand | null {
@@ -64,7 +73,7 @@ export const CONFIDENCE_BAND_LABEL: Record<ConfidenceBand, string> = {
 export function confidenceDetail(score: number | null | undefined): string {
   if (score === null || score === undefined || Number.isNaN(score)) return 'No confidence score recorded';
   const band = confidenceBand(score);
-  return `Confidence ${score}/100 (${band ? CONFIDENCE_BAND_LABEL[band] : 'unscored'}). Weighted score across source quality, recency, directness, corroboration and extraction quality.`;
+  return `Confidence ${score}/100 (${band ? CONFIDENCE_BAND_LABEL[band] : 'unscored'}). Analyst-recorded score normalised to a 0–100 scale; provenance is tracked separately.`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -112,13 +121,18 @@ export const SUPPLY_CATEGORY_LABEL: Record<SupplyCategory, string> = {
 
 const NODE_TYPE_LABEL: Record<string, string> = {
   mine: 'Mine',
+  mine_and_concentrator: 'Mine & concentrator',
   development_project: 'Development project',
   concentrator: 'Concentrator',
   smelter: 'Smelter',
+  refinery: 'Refinery',
+  processing_plant: 'Processing plant',
   metal_plant: 'Antimony metal plant',
   trioxide_plant: 'Antimony trioxide plant',
   port: 'Port',
+  rail_terminal: 'Rail terminal',
   border_gateway: 'Border gateway',
+  logistics_gateway: 'Logistics gateway',
 };
 
 /** node_type is free text in the schema; label known values, title-case the rest. */
@@ -135,14 +149,25 @@ export function formatStatus(status: string | null | undefined): string {
   return STATUS_LABEL[status as NodeStatus] ?? formatNodeType(status);
 }
 
-export const PROCESSING_NODE_TYPES = new Set(['concentrator', 'smelter', 'metal_plant', 'trioxide_plant']);
-export const GATEWAY_NODE_TYPES = new Set(['port', 'border_gateway']);
-export const UPSTREAM_NODE_TYPES = new Set(['mine', 'development_project']);
+export const PROCESSING_NODE_TYPES = new Set([
+  'concentrator',
+  'smelter',
+  'refinery',
+  'processing_plant',
+  'metal_plant',
+  'trioxide_plant',
+]);
+export const GATEWAY_NODE_TYPES = new Set(['port', 'rail_terminal', 'border_gateway', 'logistics_gateway']);
+export const UPSTREAM_NODE_TYPES = new Set(['mine', 'mine_and_concentrator', 'development_project']);
 
 /* ------------------------------------------------------------------ */
 /* Location precision                                                  */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Location precision is a free-text assertion (field_name
+ * "location_precision") in the live schema, not a nodes column.
+ */
 export function formatLocationPrecision(precision: string | null | undefined): string {
   if (!precision) return 'Precision not recorded';
   const map: Record<string, string> = {
@@ -152,11 +177,13 @@ export function formatLocationPrecision(precision: string | null | undefined): s
     district: 'District-level location',
     country: 'Country-level location',
   };
-  return map[precision] ?? formatNodeType(precision);
+  return map[precision.trim().toLowerCase()] ?? precision;
 }
 
+/** Anything not explicitly claimed exact is treated as approximate. */
 export function isApproximateLocation(precision: string | null | undefined): boolean {
-  return precision !== 'exact';
+  if (!precision) return true;
+  return !precision.trim().toLowerCase().includes('exact');
 }
 
 /* ------------------------------------------------------------------ */
@@ -336,26 +363,38 @@ export type MetricKind = 'capacity' | 'production' | 'resource' | 'other';
  * Coarse classification of free-text metric names, used only for coverage
  * reporting ("no capacity metric recorded"). It never alters how a metric is
  * displayed — metric names and qualifiers always render verbatim.
+ * Resource/reserve keywords are checked before production so metrics like
+ * "measured_and_indicated_contained_antimony" classify as inventory, and
+ * capacity is checked first so "announced_expanded_production_capacity"
+ * stays capacity.
  */
 export function classifyMetricKind(metricName: string | null | undefined): MetricKind {
   if (!metricName) return 'other';
   const name = metricName.toLowerCase();
   if (name.includes('capacity') || name.includes('throughput') || name.includes('nameplate')) return 'capacity';
   if (
-    name.includes('production') ||
-    name.includes('recovered') ||
-    name.includes('output') ||
-    name.includes('contained')
+    name.includes('resource') ||
+    name.includes('reserve') ||
+    name.includes('measured') ||
+    name.includes('indicated') ||
+    name.includes('inferred') ||
+    name.includes('proven') ||
+    name.includes('probable')
   ) {
-    return 'production';
+    return 'resource';
   }
-  if (name.includes('resource') || name.includes('reserve')) return 'resource';
+  if (name.includes('production') || name.includes('recovered') || name.includes('output')) return 'production';
   return 'other';
 }
 
-/** Human label for assertion field names (free text, e.g. "mining_method"). */
+/** Human label for snake_case identifiers (metric_name, field_name, …). */
 export function formatFieldName(fieldName: string | null | undefined): string {
   return formatNodeType(fieldName);
+}
+
+/** Metric names like "antimony_finished_goods_production" → readable label. */
+export function formatMetricName(metricName: string | null | undefined): string {
+  return formatNodeType(metricName);
 }
 
 /* ------------------------------------------------------------------ */

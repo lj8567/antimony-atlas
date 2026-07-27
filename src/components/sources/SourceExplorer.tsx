@@ -8,7 +8,7 @@ import { SearchField, SelectField } from '@/components/ui/controls';
 import { SourceLink } from '@/components/ui/SourceLink';
 import { EmptyState } from '@/components/ui/states';
 import { toQueryString } from '@/lib/filters';
-import { formatDate } from '@/lib/format';
+import { formatDate, normalizeConfidence } from '@/lib/format';
 import type { SourceListItem } from '@/lib/supabase/types';
 
 interface SourceFilters {
@@ -44,24 +44,20 @@ export function SourceExplorer({ sources }: { sources: SourceListItem[] }) {
   };
 
   const options = useMemo(() => {
-    const publishers = [...new Set(sources.map((source) => source.publisher))].sort().map((publisher) => ({
-      value: publisher,
-      label: publisher,
-    }));
-    const types = [...new Set(sources.map((source) => source.source_type))].sort().map((type) => ({
-      value: type,
-      label: type,
-    }));
+    const publishers = [...new Set(sources.map((source) => source.publisher).filter((p): p is string => Boolean(p)))]
+      .sort()
+      .map((publisher) => ({ value: publisher, label: publisher }));
+    const types = [...new Set(sources.map((source) => source.source_type).filter((t): t is string => Boolean(t)))]
+      .sort()
+      .map((type) => ({ value: type, label: type }));
     const years = [...new Set(sources.map((source) => (source.publication_date ?? '').slice(0, 4)).filter(Boolean))]
       .sort()
       .reverse()
       .map((year) => ({ value: year, label: year }));
     const nodeMap = new Map<string, string>();
     for (const source of sources) {
-      for (const assertion of source.assertions) {
-        for (const na of assertion.node_assertions) {
-          if (na.node) nodeMap.set(na.node.node_id, na.node.canonical_name);
-        }
+      for (const claim of source.supports) {
+        if (claim.node_id && claim.node_name) nodeMap.set(claim.node_id, claim.node_name);
       }
     }
     const nodes = [...nodeMap.entries()]
@@ -76,17 +72,10 @@ export function SourceExplorer({ sources }: { sources: SourceListItem[] }) {
       if (filters.publisher && source.publisher !== filters.publisher) return false;
       if (filters.type && source.source_type !== filters.type) return false;
       if (filters.year && !(source.publication_date ?? '').startsWith(filters.year)) return false;
-      if (filters.node) {
-        const supportsNode = source.assertions.some((assertion) =>
-          assertion.node_assertions.some((na) => na.node?.node_id === filters.node),
-        );
-        if (!supportsNode) return false;
-      }
-      if (filters.provenance) {
-        if (!source.assertions.some((assertion) => assertion.provenance === filters.provenance)) return false;
-      }
+      if (filters.node && !source.supports.some((claim) => claim.node_id === filters.node)) return false;
+      if (filters.provenance && !source.supports.some((claim) => claim.provenance === filters.provenance)) return false;
       if (query) {
-        const haystack = `${source.title} ${source.publisher}`.toLowerCase();
+        const haystack = `${source.title} ${source.publisher ?? ''}`.toLowerCase();
         if (!haystack.includes(query)) return false;
       }
       return true;
@@ -138,7 +127,6 @@ export function SourceExplorer({ sources }: { sources: SourceListItem[] }) {
                 <th>Publisher</th>
                 <th>Type</th>
                 <th>Published</th>
-                <th>Retrieved</th>
                 <th className="num">Supports</th>
                 <th>
                   <span className="visually-hidden">Expand</span>
@@ -148,20 +136,10 @@ export function SourceExplorer({ sources }: { sources: SourceListItem[] }) {
             <tbody>
               {filtered.map((source) => {
                 const isOpen = expanded === source.source_id;
-                const nodeNames = [
-                  ...new Map(
-                    source.assertions.flatMap((assertion) =>
-                      assertion.node_assertions
-                        .filter((na) => na.node)
-                        .map((na) => [na.node!.node_id, na.node!.canonical_name] as const),
-                    ),
-                  ).entries(),
-                ];
                 return (
                   <SourceRowPair
                     key={source.source_id}
                     source={source}
-                    nodeNames={nodeNames}
                     isOpen={isOpen}
                     onToggle={() => setExpanded(isOpen ? null : source.source_id)}
                   />
@@ -182,15 +160,20 @@ export function SourceExplorer({ sources }: { sources: SourceListItem[] }) {
 
 function SourceRowPair({
   source,
-  nodeNames,
   isOpen,
   onToggle,
 }: {
   source: SourceListItem;
-  nodeNames: Array<readonly [string, string]>;
   isOpen: boolean;
   onToggle: () => void;
 }) {
+  const linkedNodes = [
+    ...new Map(
+      source.supports
+        .filter((claim) => claim.node_id && claim.node_name)
+        .map((claim) => [claim.node_id!, claim.node_name!] as const),
+    ).entries(),
+  ];
   return (
     <>
       <tr>
@@ -198,12 +181,11 @@ function SourceRowPair({
           <SourceLink url={source.url} title={source.title} className="row-link" />
           {source.licence && <span className="cell-sub">Licence: {source.licence}</span>}
         </td>
-        <td>{source.publisher}</td>
-        <td>{source.source_type}</td>
+        <td>{source.publisher ?? <span className="note">Not recorded</span>}</td>
+        <td>{source.source_type ?? <span className="note">—</span>}</td>
         <td>{formatDate(source.publication_date)}</td>
-        <td>{formatDate(source.retrieved_at)}</td>
         <td className="num">
-          {source.assertions.length} claim{source.assertions.length === 1 ? '' : 's'}
+          {source.supports.length} claim{source.supports.length === 1 ? '' : 's'}
         </td>
         <td>
           <button type="button" className="btn btn-ghost" onClick={onToggle} aria-expanded={isOpen}>
@@ -213,11 +195,11 @@ function SourceRowPair({
       </tr>
       {isOpen && (
         <tr>
-          <td colSpan={7} style={{ background: 'var(--surface-2)' }}>
-            {nodeNames.length > 0 && (
+          <td colSpan={6} style={{ background: 'var(--surface-2)' }}>
+            {linkedNodes.length > 0 && (
               <p className="note" style={{ margin: '4px 0 8px' }}>
                 Linked assets:{' '}
-                {nodeNames.map(([nodeId, name], index) => (
+                {linkedNodes.map(([nodeId, name], index) => (
                   <span key={nodeId}>
                     {index > 0 && ', '}
                     <Link href={`/assets/${nodeId}`}>{name}</Link>
@@ -225,24 +207,24 @@ function SourceRowPair({
                 ))}
               </p>
             )}
-            {source.assertions.length === 0 ? (
+            {source.supports.length === 0 ? (
               <p className="note" style={{ margin: '4px 0' }}>
-                No assertions extracted from this source yet.
+                No claims extracted from this source yet.
               </p>
             ) : (
               <ul style={{ margin: '4px 0', paddingLeft: 18, fontSize: 12.5, color: 'var(--ink-2)' }}>
-                {source.assertions.map((assertion) => (
-                  <li key={assertion.assertion_id} style={{ marginBottom: 7, maxWidth: 720, whiteSpace: 'normal' }}>
-                    “{assertion.claim_text}”
-                    <span className="inline-list" style={{ marginTop: 3 }}>
-                      <ProvenanceBadge provenance={assertion.provenance} withHint={false} />
-                      <ConfidenceIndicator score={assertion.confidence_score} withHint={false} />
-                      {assertion.node_assertions.map((na, index) => (
-                        <span key={index} className="chip">
-                          {na.field_name}
-                        </span>
-                      ))}
-                    </span>
+                {source.supports.map((claim, index) => (
+                  <li key={index} style={{ marginBottom: 7, maxWidth: 720, whiteSpace: 'normal' }}>
+                    <span className="note">{claim.kind}:</span> {claim.label}
+                    {claim.reference ? <span className="note"> ({claim.reference})</span> : null}
+                    {(claim.provenance || claim.confidence !== null) && (
+                      <span className="inline-list" style={{ marginTop: 3 }}>
+                        {claim.provenance && <ProvenanceBadge provenance={claim.provenance} withHint={false} />}
+                        {claim.confidence !== null && (
+                          <ConfidenceIndicator score={normalizeConfidence(claim.confidence)} withHint={false} />
+                        )}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>

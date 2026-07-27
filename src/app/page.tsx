@@ -1,10 +1,10 @@
 import Link from 'next/link';
-import { ConfidenceIndicator, ProvenanceBadge, SeverityIndicator, StatusLabel } from '@/components/ui/badges';
+import { ConfidenceIndicator, EvidenceSummary, SeverityIndicator, StatusLabel } from '@/components/ui/badges';
 import { Hint } from '@/components/ui/Hint';
 import { MetricValue } from '@/components/ui/MetricValue';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Panel } from '@/components/ui/Panel';
-import { EmptyState, QueryFailure } from '@/components/ui/states';
+import { EmptyState, QueryFailure, WarningsNotice } from '@/components/ui/states';
 import { countryName } from '@/lib/countries';
 import {
   formatDate,
@@ -15,91 +15,87 @@ import {
   PROCESSING_NODE_TYPES,
   supplyCategory,
 } from '@/lib/format';
-import { fetchAssetList } from '@/lib/supabase/queries/assets';
 import { fetchOverviewData } from '@/lib/supabase/queries/overview';
-import type { AssetListItem, NodeStatus } from '@/lib/supabase/types';
+import type { NodeStatus } from '@/lib/supabase/types';
 
 export const dynamic = 'force-dynamic';
 
 export default async function OverviewPage() {
-  const [overviewRes, assetsRes] = await Promise.all([fetchOverviewData(), fetchAssetList()]);
+  const result = await fetchOverviewData();
 
-  if (!overviewRes.ok) {
+  if (!result.ok) {
     return (
       <div className="page">
         <Header />
-        <QueryFailure result={overviewRes} />
+        <QueryFailure result={result} />
       </div>
     );
   }
-  const overview = overviewRes.data;
-  const assets: AssetListItem[] = assetsRes.ok ? assetsRes.data : [];
-  const assetByNodeId = new Map(assets.map((item) => [item.node.node_id, item]));
+  const { assets, recentEvents, sourceCount, claimCount, tradeFlowCount, tradeTableExists } = result.data;
 
-  const countByStatus = (status: NodeStatus) => overview.nodes.filter((n) => n.status === status).length;
-  const operatingAssets = overview.nodes.filter(
-    (n) => !PROCESSING_NODE_TYPES.has(n.node_type) && !GATEWAY_NODE_TYPES.has(n.node_type) && n.status === 'operating',
+  const upstreamAssets = assets.filter(
+    (item) => !PROCESSING_NODE_TYPES.has(item.node.node_type) && !GATEWAY_NODE_TYPES.has(item.node.node_type),
+  );
+  const operatingAssets = upstreamAssets.filter((item) => item.node.status === 'operating').length;
+  const developmentProjects = upstreamAssets.filter(
+    (item) => item.node.status === 'development' || item.node.status === 'construction',
   ).length;
-  const developmentProjects = overview.nodes.filter(
-    (n) =>
-      !PROCESSING_NODE_TYPES.has(n.node_type) &&
-      !GATEWAY_NODE_TYPES.has(n.node_type) &&
-      (n.status === 'development' || n.status === 'construction'),
-  ).length;
-  const processingFacilities = overview.nodes.filter((n) => PROCESSING_NODE_TYPES.has(n.node_type)).length;
-  const gateways = overview.nodes.filter((n) => GATEWAY_NODE_TYPES.has(n.node_type)).length;
-  const countries = new Set(overview.nodes.map((n) => n.country_code)).size;
+  const processingFacilities = assets.filter((item) => PROCESSING_NODE_TYPES.has(item.node.node_type)).length;
+  const gateways = assets.filter((item) => GATEWAY_NODE_TYPES.has(item.node.node_type)).length;
+  const countries = new Set(assets.map((item) => item.node.country_code).filter(Boolean)).size;
 
-  const totalAssertions = overview.assertions.length;
-  const highConfidence = overview.assertions.filter((a) => a.confidence_score >= 85).length;
-  const highConfidenceShare = totalAssertions > 0 ? Math.round((highConfidence / totalAssertions) * 100) : null;
+  const evidenceTotals = assets.reduce(
+    (totals, item) => ({
+      reported: totals.reported + item.evidence.reported,
+      modelled: totals.modelled + item.evidence.modelled,
+      unverified: totals.unverified + item.evidence.unverified,
+    }),
+    { reported: 0, modelled: 0, unverified: 0 },
+  );
+  const totalClaims = evidenceTotals.reported + evidenceTotals.modelled + evidenceTotals.unverified;
+  const highConfidenceAssets = assets.filter((item) => (item.max_confidence ?? 0) >= 85).length;
 
-  const provenanceMix = ['reported', 'modelled', 'unverified'].map((prov) => ({
-    prov: prov as 'reported' | 'modelled' | 'unverified',
-    count: overview.assertions.filter((a) => a.provenance === prov).length,
-  }));
-
-  // Watchlist: assets with recorded observations first, then by identity confidence.
+  // Watchlist: assets with recorded observations first, then by max confidence.
   const watchlist = [...assets]
-    .sort((a, b) => b.observation_count - a.observation_count || (b.identity_confidence ?? -1) - (a.identity_confidence ?? -1))
+    .sort(
+      (a, b) => b.observation_count - a.observation_count || (b.max_confidence ?? -1) - (a.max_confidence ?? -1),
+    )
     .slice(0, 8);
 
-  // Coverage flags (counts, upstream assets only for production/capacity)
-  const upstream = assets.filter((a) => a.node.node_type === 'mine' || a.node.node_type === 'development_project');
-  const missingProduction = upstream.filter(
-    (a) => a.observation_count === 0 || !hasMetricKind(a, 'production'),
-  ).length;
-  const missingCapacity = upstream.filter((a) => a.observation_count === 0 || !hasMetricKind(a, 'capacity')).length;
-  const staleRecords = overview.nodes.filter((n) => isStale(n.last_reviewed_at)).length;
-  const lowConfidenceIdentity = overview.identity.filter((row) => row.confidence_score < 65).length;
+  const missingProduction = upstreamAssets.filter((item) => !item.metric_kinds.includes('production')).length;
+  const missingCapacity = upstreamAssets.filter((item) => !item.metric_kinds.includes('capacity')).length;
+  const staleRecords = assets.filter((item) => isStale(item.node.updated_at)).length;
 
-  const supplyMetrics = overview.observations.filter((obs) => obs.node_id !== null).slice(0, 8);
+  // Latest principal metrics across assets, shown per metric with full qualifiers.
+  const supplyMetrics = assets
+    .filter((item) => item.principal_observation !== null)
+    .sort((a, b) =>
+      (b.principal_observation!.period_end ?? '').localeCompare(a.principal_observation!.period_end ?? ''),
+    )
+    .slice(0, 8);
 
   return (
     <div className="page">
       <Header />
+      <WarningsNotice warnings={result.warnings} />
 
       <div className="kpi-grid">
         <Kpi label="Operating assets" value={operatingAssets} foot="mines & projects in production" />
         <Kpi label="Development projects" value={developmentProjects} foot="prospective, incl. construction" />
-        <Kpi label="Processing facilities" value={processingFacilities} foot="concentrators to trioxide plants" />
+        <Kpi label="Processing facilities" value={processingFacilities} foot="concentrators, smelters, plants" />
         <Kpi label="Logistics gateways" value={gateways} foot="ports & border crossings" />
         <Kpi label="Countries" value={countries} foot="with mapped nodes" />
-        <Kpi label="Sources" value={overview.sourceCount} foot={`${totalAssertions} assertions on file`} />
+        <Kpi label="Sources" value={sourceCount} foot={`${claimCount} claims on file`} />
         <Kpi
-          label="High-confidence"
-          value={highConfidenceShare === null ? '—' : `${highConfidenceShare}%`}
-          foot="assertions scoring ≥ 85/100"
+          label="High-confidence assets"
+          value={assets.length === 0 ? '—' : `${highConfidenceAssets} of ${assets.length}`}
+          foot="max claim confidence ≥ 85/100"
         />
       </div>
 
       <div className="panel-grid">
         <div className="col-span-7">
-          <Panel
-            title="Priority assets"
-            note="Ranked by recorded evidence, then identity confidence"
-            flush
-          >
+          <Panel title="Priority assets" note="Ranked by recorded evidence, then confidence" flush>
             {watchlist.length === 0 ? (
               <EmptyState
                 title="No assets recorded yet"
@@ -114,8 +110,8 @@ export default async function OverviewPage() {
                       <th>Country</th>
                       <th>Status</th>
                       <th>Principal metric</th>
-                      <th>Provenance</th>
-                      <th>Confidence</th>
+                      <th>Evidence</th>
+                      <th>Max conf.</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -123,7 +119,7 @@ export default async function OverviewPage() {
                       <tr key={item.node.node_id}>
                         <td className="primary-cell">
                           <Link href={`/assets/${item.node.node_id}`} className="row-link">
-                            {item.node.canonical_name}
+                            {item.node.name}
                           </Link>
                           <span className="cell-sub">{formatNodeType(item.node.node_type)}</span>
                         </td>
@@ -132,17 +128,17 @@ export default async function OverviewPage() {
                           <StatusLabel status={item.node.status} />
                         </td>
                         <td>
-                          {item.latest_observation ? (
-                            <MetricValue observation={item.latest_observation} compact />
+                          {item.principal_observation ? (
+                            <MetricValue observation={item.principal_observation} compact />
                           ) : (
                             <span className="note">Not yet researched</span>
                           )}
                         </td>
                         <td>
-                          <ProvenanceBadge provenance={item.identity_provenance} />
+                          <EvidenceSummary counts={item.evidence} sourceCount={item.source_count} />
                         </td>
                         <td>
-                          <ConfidenceIndicator score={item.identity_confidence} />
+                          <ConfidenceIndicator score={item.max_confidence} />
                         </td>
                       </tr>
                     ))}
@@ -155,10 +151,11 @@ export default async function OverviewPage() {
           <Panel
             title="Recorded supply metrics"
             note={
-              <Hint text="Quantities are shown per metric with their original unit, period and estimate type. Different product forms and units are never aggregated into a single supply figure.">
+              <Hint text="Each asset's principal metric with its original unit, period and provenance. Production, capacity, resources and reserves are different things and are never aggregated into a single supply figure.">
                 <span>Why no single total?</span>
               </Hint>
             }
+            flush
           >
             {supplyMetrics.length === 0 ? (
               <EmptyState
@@ -176,38 +173,27 @@ export default async function OverviewPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {supplyMetrics.map((obs) => {
-                      const asset = obs.node_id ? assetByNodeId.get(obs.node_id) : undefined;
-                      return (
-                        <tr key={obs.observation_id}>
-                          <td className="primary-cell">
-                            {asset ? (
-                              <Link href={`/assets/${asset.node.node_id}`} className="row-link">
-                                {asset.node.canonical_name}
-                              </Link>
-                            ) : (
-                              <span className="note">Country-level</span>
-                            )}
-                          </td>
-                          <td>
-                            <MetricValue observation={obs} />
-                          </td>
-                          <td>
-                            {asset ? (
-                              <span className="note">
-                                {supplyCategory(asset.node.status) === 'operating'
-                                  ? 'Operating supply'
-                                  : supplyCategory(asset.node.status) === 'prospective'
-                                    ? 'Prospective supply'
-                                    : 'Inactive / uncertain'}
-                              </span>
-                            ) : (
-                              <span className="note">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {supplyMetrics.map((item) => (
+                      <tr key={item.node.node_id}>
+                        <td className="primary-cell">
+                          <Link href={`/assets/${item.node.node_id}`} className="row-link">
+                            {item.node.name}
+                          </Link>
+                        </td>
+                        <td>
+                          <MetricValue observation={item.principal_observation!} />
+                        </td>
+                        <td>
+                          <span className="note">
+                            {supplyCategory(item.node.status) === 'operating'
+                              ? 'Operating supply'
+                              : supplyCategory(item.node.status) === 'prospective'
+                                ? 'Prospective supply'
+                                : 'Inactive / uncertain'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -217,21 +203,24 @@ export default async function OverviewPage() {
 
         <div className="col-span-5">
           <Panel title="Recent material events" note={<Link href="/events">Event monitor →</Link>} flush>
-            {overview.recentEvents.length === 0 ? (
+            {recentEvents.length === 0 ? (
               <EmptyState
                 title="No events recorded yet"
-                detail="Export controls, suspensions, permits and other material events will appear here."
+                detail="Suspensions, commissioning milestones, permits and other material events will appear here."
               />
             ) : (
               <ul className="timeline">
-                {overview.recentEvents.map((event) => (
+                {recentEvents.map((event) => (
                   <li key={event.event_id} className={`sev-${event.severity ?? 1}`}>
-                    <div className="inline-list" style={{ justifyContent: 'space-between' }}>
-                      <strong style={{ fontSize: 12.5 }}>{event.headline}</strong>
-                    </div>
+                    <strong style={{ fontSize: 12.5 }}>{event.title}</strong>
                     <div className="note" style={{ marginTop: 2 }}>
-                      {formatEventType(event.event_type)} · {formatDate(event.announced_at)}
-                      {event.country_code ? ` · ${countryName(event.country_code)}` : ''}
+                      {formatEventType(event.event_type)} · {formatDate(event.event_date)}
+                      {event.node ? (
+                        <>
+                          {' · '}
+                          <Link href={`/assets/${event.node.node_id}`}>{event.node.name}</Link>
+                        </>
+                      ) : null}
                     </div>
                     <div style={{ marginTop: 4 }}>
                       <SeverityIndicator severity={event.severity} />
@@ -242,34 +231,37 @@ export default async function OverviewPage() {
             )}
           </Panel>
 
-          <Panel title="Evidence mix" note="All assertions on file">
-            {totalAssertions === 0 ? (
-              <EmptyState title="No assertions yet" />
+          <Panel title="Evidence mix" note="All claims across assets">
+            {totalClaims === 0 ? (
+              <EmptyState title="No claims yet" />
             ) : (
               <div>
-                {provenanceMix.map(({ prov, count }) => (
-                  <div className="bar-row" key={prov}>
-                    <ProvenanceBadge provenance={prov} withHint={false} />
-                    <div className="bar-track">
-                      <div
-                        className="bar-fill"
-                        style={{
-                          width: count > 0 ? `${Math.max(2, (count / totalAssertions) * 100)}%` : 0,
-                          background:
-                            prov === 'reported'
-                              ? 'var(--prov-reported)'
-                              : prov === 'modelled'
-                                ? 'var(--prov-modelled)'
-                                : 'var(--prov-unverified)',
-                          opacity: 0.75,
-                        }}
-                      />
+                {(['reported', 'modelled', 'unverified'] as const).map((prov) => {
+                  const count = evidenceTotals[prov];
+                  return (
+                    <div className="bar-row" key={prov}>
+                      <span style={{ textTransform: 'capitalize' }}>{prov}</span>
+                      <div className="bar-track">
+                        <div
+                          className="bar-fill"
+                          style={{
+                            width: count > 0 ? `${Math.max(2, (count / totalClaims) * 100)}%` : 0,
+                            background:
+                              prov === 'reported'
+                                ? 'var(--prov-reported)'
+                                : prov === 'modelled'
+                                  ? 'var(--prov-modelled)'
+                                  : 'var(--prov-unverified)',
+                            opacity: 0.75,
+                          }}
+                        />
+                      </div>
+                      <span className="num">
+                        {count} <span className="note">({Math.round((count / totalClaims) * 100)}%)</span>
+                      </span>
                     </div>
-                    <span className="num">
-                      {count} <span className="note">({Math.round((count / totalAssertions) * 100)}%)</span>
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Panel>
@@ -278,23 +270,19 @@ export default async function OverviewPage() {
             <dl className="kv">
               <dt>Upstream assets without a production metric</dt>
               <dd className="num" style={{ textAlign: 'left' }}>
-                {upstream.length === 0 ? 'No upstream assets yet' : `${missingProduction} of ${upstream.length}`}
+                {upstreamAssets.length === 0 ? 'No upstream assets yet' : `${missingProduction} of ${upstreamAssets.length}`}
               </dd>
               <dt>Upstream assets without a capacity metric</dt>
               <dd className="num" style={{ textAlign: 'left' }}>
-                {upstream.length === 0 ? 'No upstream assets yet' : `${missingCapacity} of ${upstream.length}`}
+                {upstreamAssets.length === 0 ? 'No upstream assets yet' : `${missingCapacity} of ${upstreamAssets.length}`}
               </dd>
-              <dt>Nodes not reviewed in 12 months</dt>
+              <dt>Records not updated in 12 months</dt>
               <dd className="num" style={{ textAlign: 'left' }}>
-                {overview.nodes.length === 0 ? 'No nodes yet' : `${staleRecords} of ${overview.nodes.length}`}
-              </dd>
-              <dt>Nodes with low-confidence identity (&lt; 65)</dt>
-              <dd className="num" style={{ textAlign: 'left' }}>
-                {overview.identity.length === 0 ? 'No scored nodes yet' : `${lowConfidenceIdentity} of ${overview.identity.length}`}
+                {assets.length === 0 ? 'No nodes yet' : `${staleRecords} of ${assets.length}`}
               </dd>
               <dt>Trade flows on file</dt>
               <dd className="num" style={{ textAlign: 'left' }}>
-                {overview.tradeFlowCount === 0 ? 'Not yet loaded' : overview.tradeFlowCount}
+                {!tradeTableExists ? 'Table not yet created' : tradeFlowCount === 0 ? 'Not yet loaded' : tradeFlowCount}
               </dd>
             </dl>
           </Panel>
@@ -304,13 +292,13 @@ export default async function OverviewPage() {
               {(
                 ['operating', 'construction', 'development', 'care_and_maintenance', 'suspended', 'closed', 'unknown'] as NodeStatus[]
               )
-                .map((status) => ({ status, count: countByStatus(status) }))
+                .map((status) => ({ status, count: assets.filter((item) => item.node.status === status).length }))
                 .filter(({ count }) => count > 0)
                 .map(({ status, count }) => (
                   <StatusRow key={status} status={status} count={count} />
                 ))}
             </dl>
-            {overview.nodes.length === 0 && <EmptyState title="No nodes yet" />}
+            {assets.length === 0 && <EmptyState title="No nodes yet" />}
           </Panel>
         </div>
       </div>
@@ -349,8 +337,4 @@ function StatusRow({ status, count }: { status: NodeStatus; count: number }) {
       </dd>
     </>
   );
-}
-
-function hasMetricKind(item: AssetListItem, kind: 'production' | 'capacity'): boolean {
-  return item.metric_kinds.includes(kind);
 }
