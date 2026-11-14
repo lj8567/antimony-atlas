@@ -1,0 +1,219 @@
+{
+  "version": 1,
+  "questions": [
+    {
+      "id": "prob-001",
+      "category": "probability",
+      "difficulty": 2,
+      "prompt": "You roll two fair dice. Given that at least one shows a 6, what is the probability that both show a 6?",
+      "answer": "1/11",
+      "explanation": "Of the 36 outcomes, 11 contain at least one 6 (six with the first die a 6, six with the second, minus the double-counted (6,6)). Only one of those 11 is (6,6), so the answer is \\(\\tfrac{1}{11}\\).",
+      "source": "sample"
+    },
+    {
+      "id": "prob-002",
+      "category": "probability",
+      "difficulty": 5,
+      "prompt": "You roll a fair die until you get a 6. Given that every roll was even, what is the expected number of rolls?",
+      "answer": "3/2",
+      "explanation": "Conditioning on 'all rolls even' is the same as rolling until the first roll in \\(\\{1,3,5,6\\}\\) and requiring it to be the 6. The time to hit that set is geometric with \\(p = \\tfrac{4}{6}\\), and which element ends the run is independent of when. So the expectation is \\(\\tfrac{1}{4/6} = \\tfrac{3}{2}\\), not 3.",
+      "source": "sample"
+    },
+    {
+      "id": "prob-003",
+      "category": "probability",
+      "difficulty": 3,
+      "prompt": "You flip a fair coin until you get two heads in a row. What is the expected number of flips?",
+      "answer": "6",
+      "explanation": "Let \\(E_0\\) be the expected flips from scratch and \\(E_1\\) after one head. Then \\(E_1 = 1 + \\tfrac12 \\cdot 0 + \\tfrac12 E_0\\) and \\(E_0 = 1 + \\tfrac12 E_1 + \\tfrac12 E_0\\). Solving gives \\(E_0 = 6\\).",
+      "source": "sample"
+    },
+    {
+      "id": "prob-004",
+      "category": "probability",
+      "difficulty": 4,
+      "prompt": "Three points are chosen independently and uniformly at random on a circle. What is the probability that the triangle they form contains the centre?",
+      "answer": "1/4",
+      "explanation": "The triangle misses the centre exactly when all three points lie in some semicircle. For each point, the chance the other two lie in the semicircle clockwise from it is \\(\\tfrac14\\), and these three events are disjoint, so \\(P(\\text{same semicircle}) = \\tfrac34\\). The answer is \\(1 - \\tfrac34 = \\tfrac14\\).",
+      "source": "sample"
+    },
+    {
+      "id": "prob-005",
+      "category": "probability",
+      "difficulty": 4,
+      "prompt": "100 passengers board a plane with 100 assigned seats. The first passenger has lost their ticket and sits in a random seat. Everyone after sits in their own seat if free, otherwise in a random free seat. What is the probability that the last passenger gets their own seat?",
+      "choices": ["\\(\\tfrac{1}{100}\\)", "\\(\\tfrac{1}{e}\\)", "\\(\\tfrac{1}{2}\\)", "\\(\\tfrac{99}{100}\\)", "\\(\\tfrac{1}{99}\\)"],
+      "answer": "C",
+      "explanation": "Whenever someone picks a random seat, seat 1 and seat 100 are equally likely to be chosen, and the process ends as soon as one of them is taken. By symmetry the last seat left is equally likely to be seat 1 or seat 100, so the answer is \\(\\tfrac12\\).",
+      "source": "sample"
+    },
+    {
+      "id": "prob-006",
+      "category": "probability",
+      "difficulty": 3,
+      "prompt": "You roll a fair die repeatedly until every face has appeared at least once. What is the expected number of rolls? (Give an exact value or a decimal.)",
+      "answer": "147/10",
+      "explanation": "Coupon collector: after \\(k\\) distinct faces, the wait for a new one is geometric with mean \\(\\tfrac{6}{6-k}\\). Summing gives \\(6\\left(1 + \\tfrac12 + \\tfrac13 + \\tfrac14 + \\tfrac15 + \\tfrac16\\right) = 14.7\\).",
+      "source": "sample"
+    },
+    {
+      "id": "prob-007",
+      "category": "probability",
+      "difficulty": 3,
+      "prompt": "Monty Hall with 4 doors: one hides a car. You pick a door; the host, who knows where the car is, opens a different door showing a goat. You then switch to one of the two other unopened doors at random. What is your probability of winning the car?",
+      "answer": "3/8",
+      "explanation": "With probability \\(\\tfrac14\\) your first pick is the car and switching loses. With probability \\(\\tfrac34\\) it is a goat, the car is behind one of the two doors you can switch to, and you pick it with probability \\(\\tfrac12\\). Total: \\(\\tfrac34 \\cdot \\tfrac12 = \\tfrac38\\).",
+      "source": "sample"
+    },
+
+    {
+      "id": "smc-001",
+      "category": "smc",
+      "difficulty": 2,
+      "prompt": "What is the units digit of \\(7^{2026}\\)?",
+      "choices": ["1", "3", "5", "7", "9"],
+      "answer": "E",
+      "explanation": "Units digits of powers of 7 cycle 7, 9, 3, 1 with period 4. Since \\(2026 \\equiv 2 \\pmod 4\\), the units digit matches \\(7^2 = 49\\), which is 9.",
+      "source": "sample"
+    },
+    {
+      "id": "smc-002",
+      "category": "smc",
+      "difficulty": 2,
+      "prompt": "How many positive integers less than 1000 are divisible by 7 but not by 11?",
+      "choices": ["128", "129", "130", "131", "142"],
+      "answer": "C",
+      "explanation": "There are \\(\\lfloor 999/7 \\rfloor = 142\\) multiples of 7, of which \\(\\lfloor 999/77 \\rfloor = 12\\) are also multiples of 11. \\(142 - 12 = 130\\).",
+      "source": "sample"
+    },
+    {
+      "id": "smc-003",
+      "category": "smc",
+      "difficulty": 3,
+      "prompt": "A regular hexagon has area 54. Joining alternate vertices forms an equilateral triangle. What is the area of that triangle?",
+      "choices": ["18", "24", "27", "30", "36"],
+      "answer": "C",
+      "explanation": "Split the hexagon (side \\(s\\)) into 6 equilateral triangles from the centre, each of area \\(\\tfrac{\\sqrt3}{4}s^2 = 9\\). Each corner the big triangle cuts off has two sides \\(s\\) at \\(120^\\circ\\), so its area is \\(\\tfrac12 s^2 \\sin 120^\\circ = \\tfrac{\\sqrt3}{4}s^2\\), also 9. Removing three corners leaves \\(54 - 27 = 27\\).",
+      "source": "sample"
+    },
+    {
+      "id": "smc-004",
+      "category": "smc",
+      "difficulty": 2,
+      "prompt": "What is the sum of the digits of \\(10^{25} - 25\\)?",
+      "choices": ["207", "212", "219", "221", "225"],
+      "answer": "C",
+      "explanation": "\\(10^{25} - 25 = 99\\ldots975\\): twenty-three 9s followed by 75. The digit sum is \\(23 \\times 9 + 7 + 5 = 219\\).",
+      "source": "sample"
+    },
+    {
+      "id": "smc-005",
+      "category": "smc",
+      "difficulty": 3,
+      "prompt": "Five positive integers have mean 5, median 6 and a unique mode of 8. What is their range?",
+      "choices": ["5", "6", "7", "8", "9"],
+      "answer": "C",
+      "explanation": "The sum is 25 and the middle value is 6. The mode 8 must appear at least twice, and it can only sit above the median, so the list is \\(a, b, 6, 8, 8\\) with \\(a + b = 3\\). That forces \\(1, 2\\), giving range \\(8 - 1 = 7\\).",
+      "source": "sample"
+    },
+    {
+      "id": "smc-006",
+      "category": "smc",
+      "difficulty": 3,
+      "prompt": "In how many ways can 10 be written as an ordered sum of 1s and 2s? (For example, \\(2+1+1\\) and \\(1+2+1\\) count as different ways of writing 4.)",
+      "choices": ["55", "64", "89", "100", "144"],
+      "answer": "C",
+      "explanation": "Let \\(w(n)\\) be the number of ways. The first term is 1 or 2, so \\(w(n) = w(n-1) + w(n-2)\\) with \\(w(1) = 1, w(2) = 2\\). These are Fibonacci numbers: 1, 2, 3, 5, 8, 13, 21, 34, 55, 89.",
+      "source": "sample"
+    },
+    {
+      "id": "smc-007",
+      "category": "smc",
+      "difficulty": 2,
+      "prompt": "What is the largest prime factor of 2026?",
+      "choices": ["13", "19", "101", "1013", "2026"],
+      "answer": "D",
+      "explanation": "\\(2026 = 2 \\times 1013\\). To check 1013 is prime, test primes up to \\(\\sqrt{1013} \\approx 31.8\\): none of 3, 7, 11, 13, 17, 19, 23, 29, 31 divide it.",
+      "source": "sample"
+    },
+
+    {
+      "id": "gmat-001",
+      "category": "gmat",
+      "difficulty": 3,
+      "prompt": "Working alone, pipe A fills a tank in 6 hours and pipe B in 9 hours. A runs alone for 2 hours, then B joins. How many more hours until the tank is full?",
+      "choices": ["2", "2.4", "2.5", "3", "3.6"],
+      "answer": "B",
+      "explanation": "After 2 hours A has filled \\(\\tfrac{2}{6} = \\tfrac13\\). Together they fill \\(\\tfrac16 + \\tfrac19 = \\tfrac{5}{18}\\) per hour, so the remaining \\(\\tfrac23\\) takes \\(\\tfrac23 \\div \\tfrac{5}{18} = \\tfrac{12}{5} = 2.4\\) hours.",
+      "source": "sample"
+    },
+    {
+      "id": "gmat-002",
+      "category": "gmat",
+      "difficulty": 3,
+      "prompt": "Data sufficiency. Is \\(x > y\\)?\n(1) \\(x^2 > y^2\\)\n(2) \\(x > 0\\)",
+      "choices": [
+        "Statement (1) alone is sufficient, but (2) alone is not",
+        "Statement (2) alone is sufficient, but (1) alone is not",
+        "Both together are sufficient, but neither alone is",
+        "Each statement alone is sufficient",
+        "Statements (1) and (2) together are not sufficient"
+      ],
+      "answer": "C",
+      "explanation": "(1) alone: \\(x = -3, y = 1\\) gives no, \\(x = 3, y = 1\\) gives yes. (2) alone says nothing about \\(y\\). Together: \\(x^2 > y^2\\) means \\(|x| > |y|\\), and \\(x > 0\\) means \\(x = |x| > |y| \\ge y\\). Sufficient together.",
+      "source": "sample"
+    },
+    {
+      "id": "gmat-003",
+      "category": "gmat",
+      "difficulty": 4,
+      "prompt": "\\(n\\) is a positive integer and \\(n^2\\) is divisible by 72. What is the largest integer that must divide \\(n\\)?",
+      "choices": ["6", "12", "24", "36", "48"],
+      "answer": "B",
+      "explanation": "\\(72 = 2^3 \\cdot 3^2\\). For \\(2^3 \\mid n^2\\), \\(n\\) needs at least \\(2^2\\); for \\(3^2 \\mid n^2\\), \\(n\\) needs at least \\(3\\). So \\(12 \\mid n\\), and \\(n = 12\\) itself works (\\(144 = 2 \\times 72\\)), so nothing larger is forced.",
+      "source": "sample"
+    },
+    {
+      "id": "gmat-004",
+      "category": "gmat",
+      "difficulty": 2,
+      "prompt": "How many distinct arrangements are there of the letters in the word LEVEL?",
+      "choices": ["20", "24", "30", "60", "120"],
+      "answer": "C",
+      "explanation": "5 letters with L and E each repeated twice: \\(\\tfrac{5!}{2!\\,2!} = \\tfrac{120}{4} = 30\\).",
+      "source": "sample"
+    },
+    {
+      "id": "lsat-001",
+      "category": "gmat",
+      "difficulty": 2,
+      "prompt": "Every member of the Fenwick chess club also plays bridge. Priya plays bridge. Therefore, Priya is a member of the Fenwick chess club.\n\nThe reasoning is flawed because it:",
+      "choices": [
+        "treats a condition that is necessary for club membership as if it were sufficient",
+        "draws a general conclusion from a single case",
+        "relies on a term that shifts meaning during the argument",
+        "attacks a person rather than the person's position",
+        "assumes that what is true of a group is true of each member"
+      ],
+      "answer": "A",
+      "explanation": "The premise says membership → plays bridge, so playing bridge is necessary for membership. The argument runs it backwards (plays bridge → membership), treating the necessary condition as sufficient.",
+      "source": "sample"
+    },
+    {
+      "id": "lsat-002",
+      "category": "gmat",
+      "difficulty": 3,
+      "prompt": "Sales of a café's oat-milk latte rose 40% in the month after the café moved it to the top of its menu board. So moving a drink to the top of the board increases its sales.\n\nThe argument depends on which assumption?",
+      "choices": [
+        "Sales of the café's other drinks did not fall that month",
+        "No other change that month, such as a price cut or promotion, accounts for the rise",
+        "Most customers read the entire menu board before ordering",
+        "Oat-milk drinks are becoming more popular nationally",
+        "The café plans to move other drinks to the top of the board"
+      ],
+      "answer": "B",
+      "explanation": "The argument infers cause from timing. It needs to rule out other causes of the rise. If a price cut happened at the same time, the conclusion collapses, so (B) is required. (D) would weaken the argument rather than support it.",
+      "source": "sample"
+    }
+  ]
+}
