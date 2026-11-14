@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Counter">
+<meta name="theme-color" content="#0b0b0c">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
+<title>Counter</title>
+<style>
+  :root { --bg:#0b0b0c; --fg:#f4f4f5; --muted:#71717a; --btn:#1c1c1f; --accent:#f59e0b; }
+  * { box-sizing:border-box; margin:0; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; background:var(--bg); color:var(--fg);
+    font-family:-apple-system, system-ui, sans-serif; user-select:none; -webkit-user-select:none; }
+  body { display:flex; flex-direction:column; touch-action:manipulation;
+    padding:env(safe-area-inset-top) 20px calc(env(safe-area-inset-bottom) + 20px); }
+  #count { flex:1; display:flex; align-items:center; justify-content:center;
+    font-size:min(34vw, 220px); font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-0.04em; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  button { border:0; border-radius:24px; background:var(--btn); color:var(--fg);
+    font-size:56px; font-weight:600; height:150px; font-family:inherit; }
+  button:active { transform:scale(0.97); background:#2a2a2e; }
+  #plus { background:var(--accent); color:#111; }
+  #plus:active { background:#d97706; }
+  #reset { margin-top:14px; height:52px; font-size:17px; color:var(--muted); background:transparent; }
+  #reset.armed { color:#ef4444; }
+</style>
+</head>
+<body>
+  <div id="count">0</div>
+  <div class="row">
+    <button id="minus" aria-label="Count down">−</button>
+    <button id="plus" aria-label="Count up">+</button>
+  </div>
+  <button id="reset">Reset</button>
+
+<script>
+  const KEY = 'counter.value';
+  const el = document.getElementById('count');
+  let n = 0;
+  try { n = parseInt(localStorage.getItem(KEY) ?? '0', 10) || 0; } catch (e) {}
+
+  function render() { el.textContent = n; }
+  function set(v) {
+    n = v; render();
+    try { localStorage.setItem(KEY, String(n)); } catch (e) {}
+  }
+
+  document.getElementById('plus').onclick  = () => set(n + 1);
+  document.getElementById('minus').onclick = () => set(n - 1);
+
+  // Reset needs two taps within 2s, so you can't wipe it by accident.
+  const reset = document.getElementById('reset');
+  let armed = null;
+  reset.onclick = () => {
+    if (armed) { clearTimeout(armed); armed = null; reset.classList.remove('armed'); reset.textContent = 'Reset'; set(0); return; }
+    reset.classList.add('armed'); reset.textContent = 'Tap again to reset';
+    armed = setTimeout(() => { armed = null; reset.classList.remove('armed'); reset.textContent = 'Reset'; }, 2000);
+  };
+
+  render();
+
+  // Offline support
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
