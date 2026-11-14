@@ -3,7 +3,7 @@
 // and quietly refreshes the cache in the background whenever there is a connection.
 // So when you change questions.json, the change shows up on the second launch after.
 // Bump CACHE only when you add a new file to PRECACHE.
-const CACHE = 'dailysix-v1';
+const CACHE = 'dailysix-v2';
 const PRECACHE = [
   "./",
   "index.html",
@@ -39,7 +39,8 @@ const PRECACHE = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(PRECACHE)));
+  // cache: 'reload' skips the browser's HTTP cache so a new version gets fresh files.
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(PRECACHE.map(u => new Request(u, { cache: 'reload' })))));
   self.skipWaiting();
 });
 
@@ -53,7 +54,7 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith(caches.open(CACHE).then(async cache => {
     const cached = await cache.match(req, { ignoreSearch: true });
-    const fresh = fetch(req).then(res => {
+    const fresh = fetch(req, { cache: 'no-cache' }).then(res => {
       if (res.ok) cache.put(req, res.clone());
       return res;
     }).catch(() => cached);

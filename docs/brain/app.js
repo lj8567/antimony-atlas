@@ -14,9 +14,8 @@ const CONFIG = {
     trialMs: 3000,          // time per trial
     targetsPerModality: 6,  // position matches per block (same for sound)
     bothTargets: 2,         // of those, trials where both match
-    upAt: 80,               // both scores at or above this: n goes up
-    downBelow: 50,          // either score below this: n goes down
-    startN: 2,
+    startN: 2,              // first-ever level; after that, the last level you chose
+    maxN: 9,
   },
   maths: { seconds: 120, add: [2, 100], mulA: [2, 12], mulB: [2, 100] },
   memory: { digitMs: 700, gapMs: 300, strikes: 2, maxTrials: 14, startLen: 4 },
@@ -322,7 +321,8 @@ const Sound = {
   play(i) {
     if (this.mode() === 'voice') {
       try {
-        const u = new SpeechSynthesisUtterance(LETTERS[i]);
+        // Lowercase: iOS reads a lone capital as "capital C".
+        const u = new SpeechSynthesisUtterance(LETTERS[i].toLowerCase());
         if (this.voice) u.voice = this.voice;
         u.lang = this.voice?.lang || 'en-GB'; u.rate = 1.05;
         speechSynthesis.speak(u);
@@ -483,7 +483,12 @@ function summaryOf(id, r) {
 }
 function blurbOf(id, r) {
   switch (id) {
-    case 'nback': return [`${CONFIG.nback.blocks} blocks, starting at `, h('span', { class: 'nowrap' }, `${state.levels.nback}-back`)];
+    case 'nback': {
+      const played = bestOf('nback', () => 1) != null;
+      return played
+        ? [`${CONFIG.nback.blocks} blocks, you pick the level. Last time `, h('span', { class: 'nowrap' }, `${state.levels.nback}-back`)]
+        : `${CONFIG.nback.blocks} blocks, you pick the level`;
+    }
     case 'maths': return `${CONFIG.maths.seconds / 60}-minute arithmetic sprint`;
     case 'memory': return `Starting at ${state.levels.memory} digits`;
     default: {
@@ -540,12 +545,18 @@ function runNback(k) {
   cleanup = () => { clearTimers(); Sound.stop(); document.removeEventListener('visibilitychange', onVis); document.removeEventListener('keydown', onKey); };
 
   function blockSummary(b) {
-    const next = b.next > b.n ? `Up to ${b.next}-back` : b.next < b.n ? `Down to ${b.next}-back` : `Staying at ${b.n}-back`;
     return h('dl', { class: 'block-scores' },
       h('dt', {}, `Block ${blocks.length}`), h('dd', {}, `${b.n}-back`),
       h('dt', {}, 'Position'), h('dd', {}, `${b.v.pct}%`),
-      h('dt', {}, 'Sound'), h('dd', {}, `${b.a.pct}%`),
-      h('dt', {}, 'Next'), h('dd', {}, next));
+      h('dt', {}, 'Sound'), h('dd', {}, `${b.a.pct}%`));
+  }
+  // You choose the level before every block. It never changes on its own;
+  // the last level you picked is remembered as the starting point next time.
+  function setLevel(v) {
+    n = Math.min(C.maxN, Math.max(1, v));
+    state.levels.nback = n;
+    save();
+    intro();
   }
   function intro() {
     keyHandler = null;
@@ -554,10 +565,14 @@ function runNback(k) {
     ui.body.replaceChildren(
       h('div', { class: 'intro' },
         blocks.length ? blockSummary(blocks[blocks.length - 1]) : null,
-        h('div', { class: 'lead' }, `${n}-back`),
+        h('p', { class: 'pick-label' }, blocks.length ? 'Level for the next block' : 'Choose your level'),
+        h('div', { class: 'level-pick' },
+          h('button', { 'aria-label': 'Lower level', disabled: n <= 1, onclick: () => setLevel(n - 1) }, '−'),
+          h('div', { class: 'lead', 'aria-live': 'polite' }, `${n}-back`),
+          h('button', { 'aria-label': 'Raise level', disabled: n >= C.maxN, onclick: () => setLevel(n + 1) }, '+')),
         h('p', {}, `Tap Position when the square is where it was ${n} ${n === 1 ? 'step' : 'steps'} back. Tap Sound when the ${what} matches the one ${n} back. A trial can match on both, one or neither.`),
         note ? h('p', { class: 'note' }, note) : null),
-      h('button', { class: 'primary', onclick: startBlock }, blocks.length ? `Start block ${blocks.length + 1}` : 'Start'));
+      h('button', { class: 'primary', onclick: startBlock }, blocks.length ? `Start block ${blocks.length + 1} at ${n}-back` : `Start at ${n}-back`));
     note = '';
   }
   function startBlock() {
@@ -602,10 +617,7 @@ function runNback(k) {
     const finishBlock = () => {
       running = false; cur = -1; keyHandler = null;
       const v = scoreMod(seq.vT, pv, seq.n, seq.T), a = scoreMod(seq.aT, pa, seq.n, seq.T);
-      const lo = Math.min(v.pct, a.pct);
-      const next = lo >= C.upAt ? n + 1 : lo < C.downBelow ? Math.max(1, n - 1) : n;
-      blocks.push({ n, v, a, next });
-      n = next;
+      blocks.push({ n: seq.n, v, a });
       if (blocks.length < C.blocks) intro(); else finishAll();
     };
     at(t0, () => onset(0));
@@ -614,10 +626,15 @@ function runNback(k) {
     releaseWake();
     const avgN = blocks.reduce((t, b) => t + b.n, 0) / blocks.length;
     const avgPct = Math.round(blocks.reduce((t, b) => t + (b.v.pct + b.a.pct) / 2, 0) / blocks.length);
-    state.levels.nback = n;
-    dayRec(k, true).results.nback = { done: true, at: Date.now(), blocks, avgN: Math.round(avgN * 100) / 100, avgPct, maxN: Math.max(...blocks.map(b => b.n)), endN: n };
+    const endN = blocks[blocks.length - 1].n;
+    dayRec(k, true).results.nback = { done: true, at: Date.now(), blocks, avgN: Math.round(avgN * 100) / 100, avgPct, maxN: Math.max(...blocks.map(b => b.n)), endN };
     save();
-    resultScreen(ui, { lead: fmtN(avgN), unit: 'average n-back level', extra: [`${avgPct}% right across ${blocks.length} blocks. Tomorrow starts at `, h('span', { class: 'nowrap' }, `${n}-back`), '.'], id: 'nback' });
+    const scores = blocks.map(b => `${b.n}-back: ${b.v.pct}% position, ${b.a.pct}% sound`);
+    resultScreen(ui, {
+      lead: fmtN(avgN), unit: 'average n-back level', id: 'nback',
+      extra: `${avgPct}% right across ${blocks.length} blocks.`,
+      list: h('ul', { class: 'result-list plain' }, scores.map(t => h('li', {}, t))),
+    });
   }
   intro();
 }
@@ -1164,11 +1181,10 @@ function viewSettings() {
           [['voice', 'Spoken letters'], ['tones', 'Tones']].map(([v, l]) => h('button', { 'aria-pressed': String(state.settings.sound === v), onclick: () => { state.settings.sound = v; save(); render(); } }, l))),
         h('button', { class: 'secondary-btn', onclick: () => { Sound.unlock(); Sound.play(Math.floor(Math.random() * 8)); } }, 'Test')),
       h('p', { class: 'note' }, 'Spoken letters use your phone’s built-in voice. If you hear nothing, turn the volume up or switch to tones.')),
-    h('h2', { class: 'section-title' }, 'Starting levels'),
+    h('h2', { class: 'section-title' }, 'Number memory'),
     h('div', { class: 'set-block' },
-      stepper('N-back level', () => state.levels.nback, v => { state.levels.nback = v; }, 1, 9),
-      stepper('Number memory digits', () => state.levels.memory, v => { state.levels.memory = v; }, 3, 20),
-      h('p', { class: 'note' }, 'Both adjust themselves after each session. Change them here if a level feels wrong.')),
+      stepper('Starting digits', () => state.levels.memory, v => { state.levels.memory = v; }, 3, 20),
+      h('p', { class: 'note' }, 'This adjusts itself after each session. Change it here if it feels wrong. N-back has no automatic level: you choose it before each block.')),
     h('h2', { class: 'section-title' }, 'Question bank'),
     bank,
     h('h2', { class: 'section-title' }, 'Backup'),
