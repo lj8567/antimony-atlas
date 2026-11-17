@@ -31,6 +31,7 @@ const TABLES = [
   'sources',
   'assertions',
   'observations',
+  'mineral_estimates',
   'events',
   'edges',
   'trade_flows',
@@ -94,8 +95,9 @@ export default async function StatusPage() {
       <p className="note">
         Reading guide: an error on <em>every</em> table usually means a wrong project URL or anon key; a
         “permission denied” on specific tables means anon SELECT grants or RLS policies are missing for those tables;
-        “reachable, 0 rows” with data known to exist means an RLS policy is filtering anonymous reads. Tables that do
-        not exist yet (e.g. edges, trade_flows) are expected and handled gracefully by the app.
+        “reachable, 0 rows” with data known to exist means an RLS policy is filtering anonymous reads. After the
+        supply-chain foundation migration, mineral_estimates, edges and trade_flows should all be reachable even when
+        they contain no rows.
       </p>
     </div>
   );
